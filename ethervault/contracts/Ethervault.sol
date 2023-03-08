@@ -1,4 +1,4 @@
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.16;
 // SPDX-License-Identifier:MIT
 /*
 
@@ -169,11 +169,11 @@ contract EtherVault {
         /*
           @dev: Remove an authorized signer.
         */
-        address _newSignerAddr
+        address newSignerAddr
     ) external protected {
         revertIfNotExist(false);
-        if (isSigner[_newSignerAddr] == 1) {
-            proposedSigner = _newSignerAddr;
+        if (isSigner[newSignerAddr] == 1) {
+            proposedSigner = newSignerAddr;
             signProposal(msg.sender);
         } else {
             revert ProposalError(406);
@@ -186,14 +186,14 @@ contract EtherVault {
             @dev: Add an authorized signer.
         */
 
-        address _newSignerAddr
+        address newSignerAddr
     ) external protected {
         revertIfNotExist(false);
-        if (isSigner[_newSignerAddr] == 1) {
+        if (isSigner[newSignerAddr] == 1) {
             revert ProposalError(412);
         }
         signProposal(msg.sender);
-        proposedSigner = _newSignerAddr;
+        proposedSigner = newSignerAddr;
     }
 
     function confirmNewSignerProposal() external protected {
@@ -381,7 +381,7 @@ contract EtherVault {
 
     }
 
-    function underLimit(uint128 _value) private returns (bool) {
+    function underLimit(uint128 ethValue) private returns (bool) {
         /*
           @dev: Function to determine whether or not a requested
           transaction's value is over the daily allowance and
@@ -395,7 +395,7 @@ contract EtherVault {
             lastDay = t;
         }
         // check to see if there's enough left
-        if (spentToday + _value <= dailyLimit) {
+        if (spentToday + ethValue <= dailyLimit) {
             return true;
         }
         return false;
