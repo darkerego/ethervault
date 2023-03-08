@@ -81,16 +81,13 @@ contract EtherVault {
 
     function checkSigner(address s) private view {
         /*
-          @dev: Checks if sender is caller.
+          @dev: Checks if sender is caller
+          and for reentrancy.
         */
-        if( isSigner[s] == 0){
-                  revert AccessError(403);
-       }
-       if (mutex == 1){
-           revert AccessError(423);
+        if( isSigner[s] == 0||mutex == 1){
+            revert AccessError(403);
        }
     }
-
 
 
     modifier protected {
