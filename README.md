@@ -48,8 +48,9 @@ Changing Parameters After Deployment
 <p>
 I almost left all of these settings as immutable, and perhaps will create another version incase that is what someone 
 is looking for, but ultimately adding this functionality did not add a tremendous amount to the deployment costs. As it 
-is currently, it costs about 1,000,000 gas to deploy the contract. This is roughly the price of four average dex swaps 
-in my experience, and at a gas price of 
+is currently, it costs about 1,300,000 gas to deploy the contract with 1000 optimization runs. This is roughly just over  
+the price of five dex swaps in my experience. If you wait till midnight on a saturday when gas cost is at say 20 gw, 
+it's only going to cost you about 0.03 Eth in fees to deploy.  
 </p>
 
 <p>
@@ -57,3 +58,43 @@ In order to revoke or add a new signer, or change the limit or threshold, <i>all
 the change. This process works just like executing a transaction, and the proposed changes will be updated whenever 
 the last required signer approves.
 </p>
+
+### Error Codes
+
+<p>
+In order to have the lowest possible bytecode size and thus deployment costs, many gas optimizations were implemented, 
+and that includes not using strings for error statements. First, I tried bytes32, and then bytes8 in place of strings,
+but there is no simple way to convert them to strings (in modern versions of solidity anyway)that would not end up 
+costing even more gas than just using strings to begin with. Then I decided to use uint8's instead. But this still takes 
+up a decent amount of space! Finally, I decided to forgo the variables altogether.
+
+</p>
+
+<pre>
+
+contract Failure{
+  function JustRevert() public pure {
+    error TxError(uint16)
+    revert TxError (404);
+  }
+}
+</pre>
+
+<p>
+Alas, there are the Error code definitions.
+</p>
+
+<pre>
+/*
+      @dev: Error Code Glossary
+      403 -- Access Denied
+      404 -- TX/Proposal Not Found
+      423 -- State is Locked
+      208 -- Caller already signed
+      406 -- Signer does not exist 
+      412 -- Address already as signer
+      302 -- No proposal Found
+      204 -- Proposal already pending
+*/
+
+</pre>

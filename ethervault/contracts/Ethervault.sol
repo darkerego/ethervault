@@ -2,17 +2,17 @@ pragma solidity ^0.8.17;
 // SPDX-License-Identifier:MIT
 /*
 
+888~~    d8   888                       Y88b      /                    888   d8
+888___ _d88__ 888-~88e  e88~~8e  888-~\  Y88b    /    /~~~8e  888  888 888 _d88__
+888     888   888  888 d888  88b 888      Y88b  /         88b 888  888 888  888
+888     888   888  888 8888__888 888       Y888/     e88~-888 888  888 888  888
+888     888   888  888 Y888    , 888        Y8/     C888  888 888  888 888  888
+888___  "88_/ 888  888  "88___/  888         Y       "88_-888 "88_-888 888  "88_/
 
-███████████████  ██████████████ ██    ██ █████ ██    █    ██████████
-██     ██   ██   ███     ██   ████    ████   █ ██    █    █    ██
-█████  ██   ███████████  ██████ ██    ███████████    █    █    ██
-██     ██   ██   ███     ██   ██ ██  ██ ██   ██ █    █    █    ██
-█████████   ██   ██████████   ██  ████  ██   ██ ████  ████    █████
+
 
 Darkerego, 2023 ~ Ethervault is a lightweight, gas effecient,
-multisignature wallet.
-
-
+multisignature wallet
 */
 
 
@@ -41,25 +41,34 @@ contract EtherVault {
     }
 
     /*
-      @dev: This is way cheaper than using require statements. The error messages are
-      intentionally short so that they will fit into a bytes8
+      @dev: Error codes:
+      This is cheaper than using require statements or strings.
+      Tried using bytes, but no good way to convert them to strings,
+      so that leaves unsigned ints as error codes.
     */
 
-    bytes8 immutable errNotFound = "!Txid"; // txid not found
-    bytes8 immutable errUnauth = "!Auth"; // Not authorized
-    bytes8 immutable errPropPending = "Pending!"; // Proposal already pending
-    bytes8 immutable errAlreadySigned = "signed!"; // Caller has already signed
-    bytes8 immutable errNoProp = "!Prpsl"; // No active proposal
-    bytes8 immutable errNotSigner = "!Signer"; // Address is not a valid signer
-    bytes8 immutable errAlreadySigner = "Dup Sig"; // duplicate signature
-    bytes8 immutable errBadNonce = "BadNonce"; // Nonce too low
-    bytes8 immutable errBalance = "!Balance"; // Insufficient Balance
+    error TxError(uint16);
+    error AccessError(uint16);
+    error ProposalError(uint16);
 
-    error Failed(bytes32 message);
+    /*
+      @dev: Error Codes are loosely modeled after HTTP error codes. Their definitions are
+      here and in the documentation:
+
+      403 -- Access denied for caller attempting to access protected function
+      404 -- Cannot execute because transaction not found
+      423 -- Refuse execution because state is Locked (reentrency gaurd)
+      208 -- Cannot sign because caller already signed
+      406 -- Cannot revoke because address is not a signer
+      412 -- Cannot add signer because address already is a signer
+      302 -- Cannot sign, no proposal Found
+      204 -- Cannot propose, proposal already pending
+    */
+
 
 
     mapping (address => uint8) isSigner;
-    mapping (uint32 => Transaction) pendingTxs;
+    mapping (uint32 => Transaction) public pendingTxs;
     /*
       @dev: pending propsal for signer modifications:
       new/revoking proposal id => (current signer => Has approved) --
@@ -69,16 +78,21 @@ contract EtherVault {
     */
     mapping (uint16 => mapping(address => uint8)) pendingProposal;
     mapping (uint => mapping (address => uint8)) confirmations;
-    event ExecAction(string indexed action, address indexed from, uint256 indexed txid);
 
     function checkSigner(address s) private view {
         /*
           @dev: Checks if sender is caller.
         */
-        if( isSigner[s] == 0 || mutex == 1){
-                  revert Failed(errUnauth);
+        if( isSigner[s] == 0){
+                  revert AccessError(403);
+       }
+       if (mutex == 1){
+           revert AccessError(423);
        }
     }
+
+
+
 
     modifier protected {
         /*
@@ -92,6 +106,9 @@ contract EtherVault {
        mutex = 0;
 
     }
+
+
+
 
     constructor(
         address[] memory _signers,
@@ -128,7 +145,7 @@ contract EtherVault {
     function alreadySignedProposal(address signer) private view {
 
         if (pendingProposal[proposalId][signer] == 1){
-            revert Failed(errAlreadySigned);
+            revert ProposalError(208);
         }
     }
 
@@ -165,9 +182,10 @@ contract EtherVault {
             proposedSigner = _newSignerAddr;
             signProposal(msg.sender);
         } else {
-            revert Failed(errNotSigner);
+            revert ProposalError(406);
         }
     }
+
 
     function proposeAddSigner(
         /*
@@ -178,7 +196,7 @@ contract EtherVault {
         ) external protected {
         revertIfNotExist(false);
         if (isSigner[_newSignerAddr] == 1){
-            revert Failed(errAlreadySigner);
+            revert ProposalError(412);
         }
         signProposal(msg.sender);
         proposedSigner = _newSignerAddr;
@@ -255,7 +273,6 @@ contract EtherVault {
             proposalSignatures = 0;
             proposalId += 1;}
         else {
-            //signLimitChange(msg.sender);
             signProposal(msg.sender);
         }
 
@@ -270,11 +287,11 @@ contract EtherVault {
         if(exist){
             // cant update if it does not exist
             if (proposalSignatures == 0){
-                revert Failed(errNoProp); }
+                revert ProposalError(302); }
         } else {
             // cant iniate if it does exist
             if (proposalSignatures != 0){
-                revert Failed(errPropPending);
+                revert ProposalError(204);
             }
         }
     }
@@ -288,22 +305,11 @@ contract EtherVault {
         uint32 txid
         ) external protected {
         if (pendingTxs[txid].dest == address(0)) {
-            revert Failed(errNotFound);
+            revert TxError(404);
         }
         delete pendingTxs[txid];
     }
 
-    function getTx(
-        /*
-        @dev: View function to get details about a pending TX.
-        After executing, data is cleared from storage, which is
-        why an event is emited for record keeping.
-        */
-        uint32 txid
-    ) external view returns(Transaction memory) {
-        return pendingTxs[txid];
-
-    }
 
     function approveTx(
         /*
@@ -317,19 +323,17 @@ contract EtherVault {
         Transaction memory _tx = pendingTxs[txid];
         if(! alreadySigned(txid, msg.sender)){
             if (_tx.dest == address(0)){
-                revert Failed(errNotFound);
+                revert TxError(404);
             }
             if(_tx.numSigners + 1 >= threshold){
                 delete pendingTxs[txid];
                 execNonce += 1;
                 execute(_tx.dest, _tx.value, _tx.data);
-                emit ExecAction("Execute Tx", msg.sender, txid);
             } else {
                 _tx.numSigners += 1;
-                emit ExecAction("Approve Tx", msg.sender, txid);
             }
         } else {
-            revert Failed(errAlreadySigned);
+            revert TxError(406);
         }
     }
 
@@ -360,7 +364,7 @@ contract EtherVault {
         ) external payable protected {
         /*Nonce also is transaction Id*/
         if(nonceTxid <= execNonce||pendingTxs[nonceTxid].dest != address(0)){
-            revert Failed(errBadNonce);
+            revert TxError(409);
         }
         // gas effecient balance call
         uint128 self;
@@ -369,7 +373,7 @@ contract EtherVault {
         }
 
         if(self < value){
-            revert Failed(errBalance);
+            revert TxError(402);
         }
 
         if (underLimit(value)) {
@@ -383,7 +387,7 @@ contract EtherVault {
             pendingTxs[nonceTxid] = (txObject);
             signTx(nonceTxid, msg.sender);
         }
-        emit ExecAction("Submit Tx", msg.sender, nonceTxid);
+
     }
 
     function underLimit(uint128 _value) private returns (bool) {
@@ -394,7 +398,7 @@ contract EtherVault {
           a different day from the last time this ran, reset the
           allowance.
         */
-        uint32 t = today();
+        uint32 t = uint32(block.timestamp / 1 days);
         if (t > lastDay) {
             spentToday = 0;
             lastDay = t;
@@ -404,14 +408,6 @@ contract EtherVault {
             return true;
         }
             return false;
-    }
-
-
-    function today() private view returns (uint32) {
-        /*
-          @dev: Determines today's index.
-        */
-        return uint32(block.timestamp / 1 days);
     }
 
      /*
