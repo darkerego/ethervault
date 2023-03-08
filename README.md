@@ -88,11 +88,11 @@ Alas, there are the Error code definitions.
 /*
       @dev: Error Code Glossary
       403 -- Access Denied
-      404 -- TX/Proposal Not Found
+      404 -- TX with given id not Found
       423 -- State is Locked
       208 -- Caller already signed
       406 -- Signer does not exist 
-      412 -- Address already as signer
+      412 -- Address already is a signer
       302 -- No proposal Found
       204 -- Proposal already pending
 */
