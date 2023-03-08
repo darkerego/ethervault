@@ -1,0 +1,8 @@
+seqLen: 50
+testLimit: 20000
+prefix: "echidna_"
+deployer: "0x8B22162751758F0feB1e4017580c85Da08DC451A"
+sender: ["0x7E145c398adeA1b6a8cA397054E62f3B207b19df", "0x4Ee4Bad6867Dd92b6A31a7BE2003A37D0c80Df39"]
+cryticArgs: []
+coverage: true
+checkAsserts: true
