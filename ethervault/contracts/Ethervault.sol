@@ -33,7 +33,8 @@ contract EtherVault {
     uint128 public pendingDailyLimit;
     uint128 public spentToday;
     address proposedSigner;
-    struct Transaction{
+
+    struct Transaction {
         address dest;
         uint128 value;
         bytes data;
@@ -65,10 +66,8 @@ contract EtherVault {
       204 -- Cannot propose, proposal already pending
     */
 
-
-
-    mapping (address => uint8) isSigner;
-    mapping (uint32 => Transaction) public pendingTxs;
+    mapping(address => uint8) isSigner;
+    mapping(uint32 => Transaction) public pendingTxs;
     /*
       @dev: pending propsal for signer modifications:
       new/revoking proposal id => (current signer => Has approved) --
@@ -76,23 +75,20 @@ contract EtherVault {
       If address already exists, this is a revokation,
       otherwise it is an addition.
     */
-    mapping (uint16 => mapping(address => uint8)) pendingProposal;
-    mapping (uint => mapping (address => uint8)) confirmations;
+    mapping(uint16 => mapping(address => uint8)) pendingProposal;
+    mapping(uint => mapping(address => uint8)) confirmations;
 
     function checkSigner(address s) private view {
         /*
           @dev: Checks if sender is caller.
         */
-        if( isSigner[s] == 0){
-                  revert AccessError(403);
-       }
-       if (mutex == 1){
-           revert AccessError(423);
-       }
+        if (isSigner[s] == 0) {
+            revert AccessError(403);
+        }
+        if (mutex == 1) {
+            revert AccessError(423);
+        }
     }
-
-
-
 
     modifier protected {
         /*
@@ -100,51 +96,49 @@ contract EtherVault {
           Saves some gas by combining these checks and using an int instead of
           bool.
         */
-       checkSigner(msg.sender);
-       mutex = 1;
-       _;
-       mutex = 0;
+        checkSigner(msg.sender);
+        mutex = 1;
+        _;
+        mutex = 0;
 
     }
-
-
 
 
     constructor(
         address[] memory _signers,
         uint8 _threshold,
         uint128 _dailyLimit
-        ){
-            /*
-              @dev: When I wrote this, I never imagined having more than 128
+    ){
+        /*
+            @dev: When I wrote this, I never imagined having more than 128
               signers. If for some reason you do, you may want to modify this code.
             */
-        unchecked{ // save some gas
+    unchecked{// save some gas
         uint8 slen = uint8(_signers.length);
         signerCount = slen;
         for (uint8 i = 0; i < slen; i++) {
             isSigner[_signers[i]] = 1;
         }
-      }
+    }
         (threshold, dailyLimit, spentToday, mutex) = (_threshold, _dailyLimit, 0, 0);
     }
 
     function alreadySigned(
-        /*
-          @dev: Checks to make sure that signer cannot sign multiple times.
+    /*
+       @dev: Checks to make sure that signer cannot sign multiple times.
         */
         uint txid,
         address owner
-    ) private view returns(bool){
-       if(confirmations[txid][owner] == 0){
-           return false;
-       }
-       return true;
+    ) private view returns (bool){
+        if (confirmations[txid][owner] == 0) {
+            return false;
+        }
+        return true;
     }
 
     function alreadySignedProposal(address signer) private view {
 
-        if (pendingProposal[proposalId][signer] == 1){
+        if (pendingProposal[proposalId][signer] == 1) {
             revert ProposalError(208);
         }
     }
@@ -153,9 +147,9 @@ contract EtherVault {
         address r,
         uint256 v,
         bytes memory d
-        ) internal {
-       /*
-         @dev: Gas efficient arbitrary call in assembly.
+    ) internal {
+        /*
+            @dev: Gas efficient arbitrary call in assembly.
        */
         assembly {
             let success_ := call(gas(), r, v, add(d, 0x00), mload(d), 0x20, 0x0)
@@ -176,7 +170,7 @@ contract EtherVault {
           @dev: Remove an authorized signer.
         */
         address _newSignerAddr
-        ) external protected {
+    ) external protected {
         revertIfNotExist(false);
         if (isSigner[_newSignerAddr] == 1) {
             proposedSigner = _newSignerAddr;
@@ -189,13 +183,13 @@ contract EtherVault {
 
     function proposeAddSigner(
         /*
-          @dev: Add an authorized signer.
+            @dev: Add an authorized signer.
         */
 
         address _newSignerAddr
-        ) external protected {
+    ) external protected {
         revertIfNotExist(false);
-        if (isSigner[_newSignerAddr] == 1){
+        if (isSigner[_newSignerAddr] == 1) {
             revert ProposalError(412);
         }
         signProposal(msg.sender);
@@ -205,7 +199,7 @@ contract EtherVault {
     function confirmNewSignerProposal() external protected {
         revertIfNotExist(true);
         alreadySignedProposal(msg.sender);
-        if(proposalSignatures +1 == signerCount)  {
+        if (proposalSignatures + 1 == signerCount) {
             /* @dev: Including this caller, all signers have been accounted for,
                 the action shall be executed now.
             */
@@ -216,7 +210,7 @@ contract EtherVault {
                   revoke this signer and reset the approval count.
                 */
                 isSigner[proposedSigner] = 0;
-                signerCount-=1;
+                signerCount -= 1;
 
             } else {
                 /*
@@ -224,7 +218,7 @@ contract EtherVault {
                   Grant signer role, reset pending signer count.
                 */
                 isSigner[proposedSigner] = 1;
-                signerCount+=1;
+                signerCount += 1;
 
             }
             // in any case
@@ -253,7 +247,6 @@ contract EtherVault {
     }
 
 
-
     function confirmProposedLimits() external protected {
         /*
           @dev: Confirm a proposal to update the threshold and/or
@@ -265,7 +258,7 @@ contract EtherVault {
 
         revertIfNotExist(true);
         alreadySignedProposal(msg.sender);
-        if (proposalSignatures +1 == signerCount) {
+        if (proposalSignatures + 1 == signerCount) {
             threshold = pendingThreshold;
             dailyLimit = pendingDailyLimit;
             pendingThreshold = 0;
@@ -277,33 +270,31 @@ contract EtherVault {
         }
 
 
-
     }
 
     function revertIfNotExist(bool exist) private view {
         /*
           @dev Check if proposal exists and revert if not.
         */
-        if(exist){
+        if (exist) {
             // cant update if it does not exist
-            if (proposalSignatures == 0){
-                revert ProposalError(302); }
+            if (proposalSignatures == 0) {
+                revert ProposalError(302);}
         } else {
             // cant iniate if it does exist
-            if (proposalSignatures != 0){
+            if (proposalSignatures != 0) {
                 revert ProposalError(204);
             }
         }
     }
 
 
-
     function revokeTx(
-        /*
-          @dev: Remove pending transaction from storage and cancel it.
-        */
+    /*
+        @dev: Remove pending transaction from storage and cancel it.
+    */
         uint32 txid
-        ) external protected {
+    ) external protected {
         if (pendingTxs[txid].dest == address(0)) {
             revert TxError(404);
         }
@@ -312,20 +303,20 @@ contract EtherVault {
 
 
     function approveTx(
-        /*
+    /*
           @dev: Function to approve a pending tx. If the signature threshold
           is met, the transaction will be executed in this same call. Reverts
           if the caller is the same signer that initialized or already approved
           the transaction.
         */
         uint32 txid
-        ) external protected {
+    ) external protected {
         Transaction memory _tx = pendingTxs[txid];
-        if(! alreadySigned(txid, msg.sender)){
-            if (_tx.dest == address(0)){
+        if (!alreadySigned(txid, msg.sender)) {
+            if (_tx.dest == address(0)) {
                 revert TxError(404);
             }
-            if(_tx.numSigners + 1 >= threshold){
+            if (_tx.numSigners + 1 >= threshold) {
                 delete pendingTxs[txid];
                 execNonce += 1;
                 execute(_tx.dest, _tx.value, _tx.data);
@@ -346,7 +337,7 @@ contract EtherVault {
     }
 
     function submitTx(
-        /*
+    /*
           @dev: Initiate a new transaction. Logic flow:
           (Note: to save gas, the nonce also doubles as the TXID.)
            1) First, check the "nonce"
@@ -361,18 +352,18 @@ contract EtherVault {
         uint128 value,
         bytes memory data,
         uint32 nonceTxid
-        ) external payable protected {
+    ) external payable protected {
         /*Nonce also is transaction Id*/
-        if(nonceTxid <= execNonce||pendingTxs[nonceTxid].dest != address(0)){
+        if (nonceTxid <= execNonce || pendingTxs[nonceTxid].dest != address(0)) {
             revert TxError(409);
         }
         // gas effecient balance call
         uint128 self;
         assembly {
-            self :=selfbalance()
+            self := selfbalance()
         }
 
-        if(self < value){
+        if (self < value) {
             revert TxError(402);
         }
 
@@ -407,14 +398,14 @@ contract EtherVault {
         if (spentToday + _value <= dailyLimit) {
             return true;
         }
-            return false;
+        return false;
     }
 
-     /*
+    /*
        @dev: Allow arbitrary deposits to contract.
      */
 
-     receive() external payable {}
+    receive() external payable {}
 
 }
 
