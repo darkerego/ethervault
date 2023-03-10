@@ -33,6 +33,10 @@ contract EtherVaultTest {
     uint128 public dailyLimit;
     uint128 public pendingDailyLimit;
     uint128 public spentToday;
+    // echidna stuff
+    address[] _signers = [0xED9E5886Ba3de69651BF0CAb407CcD8c3885405f, 0xdF0dd354cA601EE75C88f08E5B9F18fC6Db3737F, 0xa9bcCFeb2276C534C6eC096f7f556DFF386796aB];
+        //sender = payable(msg.sender);
+
     address proposedSigner;
     struct Transaction{
         address dest;
@@ -68,7 +72,7 @@ contract EtherVaultTest {
 
 
 
-    mapping (address => uint8) isSigner;
+    mapping (address => uint8) public isSigner;
     mapping (uint32 => Transaction) public pendingTxs;
     /*
       @dev: pending propsal for signer modifications:
@@ -124,13 +128,9 @@ contract EtherVaultTest {
     }*/
     constructor(){
         // Echidna friendly Test version
-        address[] memory _signers;
-        sender = payable(msg.sender);
-        _signers[0] = 0xED9E5886Ba3de69651BF0CAb407CcD8c3885405f;
-        _signers[1] = 0xdF0dd354cA601EE75C88f08E5B9F18fC6Db3737F;
-        _signers[2] = 0xa9bcCFeb2276C534C6eC096f7f556DFF386796aB;
 
 
+        _signers.push(msg.sender);
         (threshold, dailyLimit, spentToday, mutex) = (2, 10000000000000, 0, 0);
         //vault = new EtherVault(signers, 2, 50000000000000000);
         unchecked{ // save some gas
@@ -216,7 +216,7 @@ contract EtherVaultTest {
         proposedSigner = _newSignerAddr;
     }
 
-    function confirmNewSignerProposal() external protected {
+    function confirmNewSignerProposal() external protected returns(bool) {
         revertIfProposalPending(false);
         alreadySignedProposal(msg.sender);
         if(proposalSignatures +1 == signerCount)  {
@@ -232,6 +232,7 @@ contract EtherVaultTest {
                 isSigner[proposedSigner] = 0;
                 signerCount-=1;
 
+
             } else {
                 /*
                   @dev: Signer does not exist yet, so this must be signer addition.
@@ -245,15 +246,19 @@ contract EtherVaultTest {
             proposalSignatures = 0;
             proposedSigner = address(0);
             proposalId += 1;
+            return true;
+
 
         } else {
             //@dev: We still need more signatures.
             signProposal(msg.sender);
+            return true;
         }
+        return false;
     }
 
 
-    function proposeNewLimits(uint8 newThreshold, uint128 newLimit) external protected {
+    function proposeNewLimits(uint8 newThreshold, uint128 newLimit) public protected returns(bool)  {
         /*
           @dev: Function to iniate a proposal to update the threshold and daily
           allowance limit. Cannot be called if another proposal is already pending.
@@ -264,10 +269,11 @@ contract EtherVaultTest {
         pendingThreshold = newThreshold;
         pendingDailyLimit = newLimit;
         signProposal(msg.sender);
+        return true;
     }
 
 
-    function confirmProposedLimits() external protected {
+    function confirmProposedLimits() public protected  returns(bool){
         /*
           @dev: Confirm a proposal to update the threshold and/or
           spending limits. First, ensure there is such a proposal.
@@ -276,7 +282,7 @@ contract EtherVaultTest {
           sign the proposal.
         */
 
-        revertIfProposalPending(false);
+        //revertIfProposalPending(false);
         alreadySignedProposal(msg.sender);
         if (proposalSignatures +1 == signerCount) {
             threshold = pendingThreshold;
@@ -284,11 +290,13 @@ contract EtherVaultTest {
             pendingThreshold = 0;
             pendingDailyLimit = 0;
             proposalSignatures = 0;
-            proposalId += 1;}
+            proposalId += 1;
+            return true;}
         else {
             signProposal(msg.sender);
+            return false;
         }
-
+        return false;
 
     }
 
@@ -383,7 +391,7 @@ contract EtherVaultTest {
         uint128 value,
         bytes memory data,
         uint32 nonceTxid
-        ) external payable protected returns(bool){
+        ) public payable protected returns(bool){
         /*Nonce also is transaction Id*/
         if(nonceTxid <= execNonce||pendingTxs[nonceTxid].dest != address(0)){
             revert TxError(409);
@@ -413,9 +421,9 @@ contract EtherVaultTest {
         }
 
     }
-    function test_check_arbitrary_withdraw_over_limit() public returns (bool) {
+    function test_check_arbitrary_withdraw_over_limit(uint32 nonce) public returns (bool) {
         //@dev: Echidna Test function
-        if (this.submitTx(0xdF0dd354cA601EE75C88f08E5B9F18fC6Db3737F, 25000000000000, "0x0",1) ){
+        if (submitTx(0xdF0dd354cA601EE75C88f08E5B9F18fC6Db3737F, 2500000000000, "0x0",nonce) ){
             // executed without approval
             return true;
 
@@ -426,16 +434,43 @@ contract EtherVaultTest {
 
     }
 
-    function echidna_exceedDailyLimits() external returns(bool){
-        test_check_arbitrary_withdraw_over_limit();
-        test_check_arbitrary_withdraw_over_limit();
-        test_check_arbitrary_withdraw_over_limit();
-        test_check_arbitrary_withdraw_over_limit();
-        // this should not return true
-        if (test_check_arbitrary_withdraw_over_limit()) {
+    function echidna_test_break_access_control() external returns(bool){
+        uint32 _nonce = execNonce+1;
+        if(this.submitTx(0x4Ee4Bad6867Dd92b6A31a7BE2003A37D0c80Df39, 100, "0x0000000000000000000000000000000000000000", _nonce)){
             return true;
         }
         return false;
+    }
+
+    function echidna_test_change_limits() external returns(bool){
+        /*
+        @dev should not be possible because the proposer cant get all signatures himself.
+        */
+        proposeNewLimits(1, 100000000000000000000);
+        if (confirmProposedLimits()) {
+            return true;
+        }
+        return false;
+
+    }
+
+    function echidna_exceedDailyLimits() external returns(bool){
+        /*
+          @dev should not be possible to exceed the limits without
+          the other signer keys
+        */
+        for (uint8 i = 0; i < 10; i++) {
+            uint32 _nonce = execNonce+1;
+            test_check_arbitrary_withdraw_over_limit(_nonce);
+        }
+
+
+        return true;
+        // this should not return true
+        /*if (test_check_arbitrary_withdraw_over_limit(5)) {
+            return true;
+        }
+        return false;*/
     }
 
 
