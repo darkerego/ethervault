@@ -1,9 +1,10 @@
-# EtherVault
+# EtherVault (Beta)
 
 ### Changelog
 
 March 9/2023
 
+- Upgrade status from alpha to beta
 - Refactored the proposal functions eliminating 3 functions and saving about 120,000 gas in deployment
 - separated nonce and txid
 - changed error messages to bytes2
