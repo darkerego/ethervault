@@ -2,10 +2,23 @@
 
 ### Changelog
 
+March 9/2023
+
 - Refactored the proposal functions eliminating 3 functions and saving about 120,000 gas in deployment
 - separated nonce and txid
 - changed error messages to bytes2
 
+March 10, 2023
+
+- Fixed a bug with the proposals
+- Refractored the authentication modifer to also 
+ check nonce on all protected functions
+
+- Continued Testing functions. Confirmed working:
+  - Proposal to modify signers is working
+  - Proposal to update limits is working
+  - Execute transaction over limit is working 
+  - Execute transaction under limit is working
 
 ### About
 <p>

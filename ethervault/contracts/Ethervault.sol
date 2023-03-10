@@ -9,18 +9,15 @@ pragma solidity ^0.8.16;
 888     888   888  888 Y888    , 888        Y8/     C888  888 888  888 888  888
 888___  "88_/ 888  888  "88___/  888         Y       "88_-888 "88_-888 888  "88_/
 
+Darkerego, 2023 ~ Ethervault is a lightweight, gas effecient multisignature wallet
 
-
-Darkerego, 2023 ~ Ethervault is a lightweight, gas effecient,
-multisignature wallet
-["0x7612E93FF157d1973D0f95Be9E4f0bdF93BAf0DE","0xE1cb8a4e283315b653D3369a09411DF32eDc60F6"]
 */
-//["0x5B38Da6a701c568545dCfcB03FcB875f56beddC4","0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2","0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db"] 50000000000000000
 contract EtherVault {
 
     /*
       @dev: gas optimized variable packing
     */
+    uint8 private debugMode = 0; // change to 1 to not delete proposals after executing them
     uint8 private mutex;
     uint8 public signerCount;
     uint8 public threshold;
@@ -93,31 +90,25 @@ contract EtherVault {
     mapping (uint32 => Transaction) public pendingTxs;
     mapping (uint16 => Proposal) public pendingProposals;
 
-    function auth(address s) private view {
+    function auth(address s, uint32 _nonce) private {
         /*
-          @dev: Checks if sender is caller
-          and for reentrancy.
+          @dev: Checks if sender is a signer, checks nonce,
+          and ensures system state is not locked.
         */
-        if( isSigner[s] == 0 || mutex == 1){
+        if( isSigner[s] == 0 ||_nonce <= execNonce|| mutex == 1){
             revert FailAndRevert(aErr);
-       }
-    }
-
-    function checkNonce(uint32 _nonce) private {
-        if (_nonce <= execNonce){
-            revert FailAndRevert(nErr);
-        }
-        execNonce += 1;
+       } // increment nonce if all checks pass
+       execNonce += 1;
     }
 
 
-    modifier protected {
+    modifier protected(uint32 _nonce) {
         /*
           @dev: Restricted function access protection and reentrancy guards.
           Saves some gas by combining these checks and using an int instead of
           bool.
         */
-       auth(msg.sender);
+       auth(msg.sender, _nonce);
        mutex = 1;
        _;
        mutex = 0;
@@ -181,27 +172,36 @@ contract EtherVault {
     }
 
     function signProposal(address caller, uint16 _proposalId) private {
+        /*
+          @dev: Mark signer as having confirmed the given proposal id
+        */
         pendingProposals[_proposalId].approvals[caller] = 1;
         pendingProposals[_proposalId].numSigners += 1;
     }
 
     function newProposal(
+        /*
+          @dev: Create a new proposal to change the daily limits, the signer threshold, or to
+          add or revoke a signer. If the specified address is already a signer, then this is a
+          revokation change. If not, it is a granting change.
+        */
         address _signer,
         uint128 _limit,
-        uint8 _threshold
-    ) external protected returns(uint16){
+        uint8 _threshold,
+        uint32 _nonce
+    ) external protected(_nonce) returns(uint16){
         proposalId += 1;
         Proposal storage prop = pendingProposals[proposalId];
         (prop.modifiedSigner, prop.newLimit, prop.initiated,
-        prop.newThreshold) = (_signer, _limit,
-        uint32(block.timestamp),  _threshold);
+        prop.newThreshold, prop.proposer) = (_signer, _limit,
+        uint32(block.timestamp),  _threshold, msg.sender);
         signProposal(msg.sender, proposalId);
         return proposalId;
     }
 
-    function deleteProposal(uint16 _proposalId) external protected {
+    function deleteProposal(uint16 _proposalId, uint32 _nonce) external protected(_nonce) {
         /*
-          @dev: Allow the proposer to delete a pending proposal.
+          @dev: Allow only the proposer to delete a pending proposal they created.
         */
         Proposal storage proposalObj = pendingProposals[_proposalId];
         if (proposalObj.proposer == msg.sender){
@@ -210,23 +210,22 @@ contract EtherVault {
     }
 
 
-    function signProposal(uint16 _proposalId) external protected {
+    function approveProposal(uint16 _proposalId,  uint32 _nonce) external protected(_nonce) {
         alreadySignedProposal(msg.sender);
         Proposal storage proposalObj = pendingProposals[_proposalId];
-        // if limit/threshold are being updated
-        if (proposalObj.newLimit > 0||proposalObj.newThreshold >0){
-            // if all signers have signed
-            if(proposalObj.numSigners +1 == signerCount)  {
+
+        // if all signers have signed
+        if(proposalObj.numSigners +1 == signerCount)  {
+             // if the limit is being updated
+            if (proposalObj.newLimit > 0){
                 dailyLimit = proposalObj.newLimit;
+            }
+            // if the threshold is being updated
+            if (proposalObj.newThreshold > 0) {
                 threshold = proposalObj.newThreshold;
             }
-        }
-        // if we are adding or revoking a signer
-        if (proposalObj.modifiedSigner != address(0)) {
-            if(proposalObj.numSigners +1 == signerCount)  {
-                /* @dev: Including this caller, all signers have been accounted for,
-                    the action shall be executed now.
-                */
+            // if updating signers
+            if (proposalObj.modifiedSigner != address(0)) {
                 if (isSigner[proposalObj.modifiedSigner] == 1) {
                     /*
                     @dev: Signer exists, so this must be a revokation proposal.
@@ -242,15 +241,21 @@ contract EtherVault {
                     Grant signer role, reset pending signer count.
                     */
                     isSigner[proposalObj.modifiedSigner] = 1;
-                        signerCount+=1;
-
-                  }
-
+                    signerCount+=1;
               }
-          }
-          // finally, clear storage for gas refund
-          delete pendingProposals[_proposalId];
+            }
+            if (debugMode == 0) {
+                // delete unless debug mode is on
+                delete pendingProposals[_proposalId];
+            }
+        } else {
+            // still need more signatures
+            signProposal(msg.sender, _proposalId);
+        }
     }
+
+
+
 
 
     function deleteTx(
@@ -259,8 +264,7 @@ contract EtherVault {
         */
         uint32 txid,
         uint32 _nonce
-        ) external protected {
-        checkNonce(_nonce);
+        ) external protected(_nonce) {
 
         if (pendingTxs[txid].dest == address(0)) {
             revert FailAndRevert(tErr);
@@ -278,9 +282,8 @@ contract EtherVault {
         */
         uint32 txid,
         uint32 _nonce
-        ) external protected {
+        ) external protected(_nonce) {
         Transaction storage _tx = pendingTxs[txid];
-        checkNonce(_nonce);
         if(!alreadySigned(txid, msg.sender)){
             if (_tx.dest == address(0)){
                 revert FailAndRevert(tErr); // tx does not exist
@@ -322,21 +325,20 @@ contract EtherVault {
         bytes memory data,
         uint32 _nonce
 
-        ) external payable protected returns(uint32) {
-        /*Nonce also is transaction Id*/
-        checkNonce(_nonce);
+        ) external payable protected(_nonce) returns(uint32) {
+
         // gas effecient balance call
         uint128 self;
         assembly {
             self :=selfbalance()
         }
-
+        // make sure we have equity for this request
         if(self < value){
             revert FailAndRevert(tErr);
         }
 
         if (underLimit(value)) {
-            // limit not reached
+            // limit not reached, no further authorization required.
             spentToday += value;
             execute(recipient, value, data);
         } else {
