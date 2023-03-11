@@ -7,6 +7,8 @@ from eth_typing import ChecksumAddress
 from secure_web3 import sw3_wallet, sw3
 from ethervault.vault_lib import exceptions
 
+import secure_web3.sw3_wallet
+
 
 class VaultCli:
     def __init__(self, wallet_file: str, network: str = 'ethereum', init: bool = False):
@@ -22,6 +24,7 @@ class VaultCli:
         self.wallet_file = wallet_file
         self.sw3 = sw3.SecureWeb3(wallet_file, network)
         self._w3 = sw3.SecureWeb3.w3
+
         if not self.check_wallet(init):
             return
         self.sw3.load_wallet()
