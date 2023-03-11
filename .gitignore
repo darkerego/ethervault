@@ -1,3 +1,8 @@
-**/.env
-**/__pycache__
-**/keys/*
+__pycache__
+.env
+.history
+.hypothesis/
+build/
+reports/
+keys/
+

@@ -22,8 +22,12 @@ ETHERSCAN_TOKEN = os.environ.get('ETHERSCAN_TOKEN')
 acct = accounts.load(DEPLOY_ACCT)
 
 
+def deploy(signers: list, threshold: int, limit: int, acct = None):
+    return EtherVault.deploy(signers, threshold, limit, {'from': acct.address}, publish_source=True)
+
+
 def main():
-    return EtherVault.deploy(SIGNERS, THRESHOLD, DAILY_LIMIT, {'from': acct.address}, publish_source=True)
+    return deploy(SIGNERS, THRESHOLD, DAILY_LIMIT, acct=acct)
 
 
 if __name__ == '__main__':
