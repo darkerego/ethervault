@@ -5,6 +5,7 @@ import os.path
 
 import dotenv
 from eth_typing import ChecksumAddress
+from eth_utils import to_checksum_address, to_wei
 from secure_web3 import sw3_wallet, sw3
 from web3.contract import Contract
 
@@ -15,7 +16,7 @@ import secure_web3.sw3_wallet
 
 
 class VaultCli:
-    def __init__(self, wallet_file: str, network: str = 'ethereum', init: (bool, str, ChecksumAddress) = False):
+    def __init__(self, wallet_file: str, network: str = 'ethereum', contract_address: str = None,  init: bool = False):
         """
         Command Line Ethervault controller tool
         (note: see docs)
@@ -26,14 +27,17 @@ class VaultCli:
         :param init: import private key and setup wallet
         """
         dotenv.load_dotenv('.env')
-        self.contract_address = None
+        self.contract_address = contract_address
         self.wallet_file = wallet_file
         self.network = network
+        self.contract_nonce = 0
         self.sw3 = sw3.SecureWeb3(wallet_file, network, )
         self._w3 = sw3.SecureWeb3.w3
 
         if not self.check_wallet(init):
             return
+
+        self.contract_address = contract_address
         self.sw3.load_wallet(self.wallet_file)
         self.sw3.setup_w3()
         self.sw3_wallet = sw3_wallet.EtherShellWallet(self.sw3)
@@ -45,22 +49,19 @@ class VaultCli:
         :return: bool
         """
         if init:
-            return self.configure_wallet(init)
+            return self.configure_wallet()
         if not os.path.exists(self.wallet_file):
             print(f'[!] Wallet does not exist: {self.wallet_file}')
             return False
-        #contract = json_funcs.load_json(self.wallet_file).get('contract').get('address')
         return True
 
-    def configure_wallet(self, init) -> bool:
+    def configure_wallet(self) -> bool:
         """
 
         :return:
         """
         print('[+] Configuring .. ')
         custom_params = []
-        if os.environ.get(f'ethervault_{self.network}'):
-            custom_params = [{"contract": {'address': init, 'networks': [self.network]}, 'nonce': 0}]
         if self.sw3.configure_wallet(custom_params):
             return True
         return False
@@ -115,39 +116,51 @@ class VaultCli:
         :return: hex(txid)
         """
         # TODO: test this function
-        raw_qty = int(qty * 10**18)
+        raw_qty = to_wei(qty, 'ether')
         txid = self.sw3_wallet.send_eth(raw_qty, self.contract_address, False, False)
         if txid:
             print(f'[+] TXID: {txid}')
 
-    def propose_withdrawal(self, destination: ChecksumAddress, quantity: float, data: bytes = bytes('0x')):
+    def propose_withdrawal(self, destination: ChecksumAddress, quantity: float, data: bytes = bytes('0x'.encode())):
         raw_qty = self.sw3.w3.toWei(quantity, 'ether')
         assert(self.get_contract_balance() >= raw_qty)
         tx = self.build_contract_interaction_tx('submitTx', {'recipient': destination, 'value': raw_qty, 'data': data,
                                                              '_nonce': self.get_contract_nonce() + 1})
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
-    def revoke_withdrawal(self, transaction_id: int) -> (hex, bool):
-        pass
+    def cancel_withdrawal(self, transaction_id: int) -> (hex, bool):
+        nonce = self.get_contract_nonce()
+        tx = self.build_contract_interaction_tx('deleteTx', {'txid': transaction_id, '_nonce': nonce})
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
-    def confirm_withdrawal(self) -> (hex, bool):
-        pass
+    def confirm_withdrawal(self, transaction_id) -> (hex, bool):
+        nonce = self.get_contract_nonce()
+        tx = self.build_contract_interaction_tx('approveTx', {'txid': transaction_id, '_nonce': nonce})
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def initiate_proposal(self, signer_address: ChecksumAddress, limit: float, threshold: int) -> (hex, bool):
-        pass
+        tx = self.build_contract_interaction_tx('newProposal', {'_signer': signer_address, '_limit': limit,
+                                                                '_threshold': threshold,
+                                                                '_nonce': self.get_contract_nonce()})
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def approve_proposal(self, proposal_id) -> (hex, bool):
-        pass
+        tx = self.build_contract_interaction_tx('approveProposal', {'_proposal_id': proposal_id,
+                                                                    '_nonce': self.get_contract_nonce()})
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def revoke_proposal(self, proposal_id) -> (hex, bool):
-        pass
+        tx = self.build_contract_interaction_tx('deleteProposal', {'_proposal_id': proposal_id,
+                                                                    '_nonce': self.get_contract_nonce()})
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
 
 def vault_cli():
     args = argparse.ArgumentParser()
     args.add_argument('-w', '--wallet', type=str, default='keys/default_wallet.json')
     args.add_argument('-i', '--init', action='store_true', help='Import private key and initialize the wallet.')
-    args.add_argument('-n', '--network', type=str, default='goerli', help='The EVM chain to operate on.')
+    args.add_argument('-n', '--network', type=str, default='goerli', choices=['goerli', 'ethereum'],
+                      help='The EVM chain to operate on.')
     subparsers = args.add_subparsers(dest='command')
     deposit = subparsers.add_parser('deposit', help='Deposit ether')
     deposit.add_argument(
@@ -155,28 +168,37 @@ def vault_cli():
         help='do not deposit, just pretend',
         action='store_true'
     )
-    deposit.add_argument('-q', '--quantity', nargs=1, type=float, help='Ether amount')
+    deposit.add_argument('-q', '--quantity', type=float, help='Ether amount')
     deploy = subparsers.add_parser('deploy', help='Deploy contract')
     deploy.add_argument('-s', '--signers', type=str, nargs='+',
                         help='Signer accounts, space separated')
     deploy.add_argument('-T', '--threshold', type=int, help='Threshold to move funds')
     deploy.add_argument('-L', '--limit', type=int, help='Daily withdrawal limit value in wei')
     args = args.parse_args()
-    vault = VaultCli('keys/default_wallet.json')
-    print('[!] Warning: this is really alpha and not everything is implemented yet.')
-
-    if args.init:
-        print('[+] The setup wizard will create your wallet now ... Enter an encryption password. ')
-        vault.configure_wallet(args.init)
-
-    if args.deploy:
-        print(args.deploy)
-
+    # print(args)
+    dotenv.load_dotenv()
+    contract_address = os.environ.get(f'ethervault_{args.network}')
+    print(f'[+] Contract is:  {contract_address}')
+    vault = VaultCli(args.wallet, args.network, contract_address, args.init)
     cid = vault.check_w3_chain_id()
     if cid:
         print(f'[+] Web3 is connected to {cid}.')
     else:
         print('[-] Web3 is not connected.')
+
+    print('[!] Warning: this is really alpha software and not everything is implemented yet!')
+
+    if args.init:
+        print('[+] The setup wizard will create your wallet now ... Enter an encryption password. ')
+        vault.configure_wallet()
+    if args.command == 'deposit':
+        print(f'[+] Will deposit {args.quantity} to {contract_address}')
+        vault.deposit_ether(qty=args.quantity)
+    if args.comman == 'deploy':
+        print('[+] Launching deploy script ... ')
+        vault.deploy_contract(args.signers, args.threshold, args.limits)
+
+
 
 
 if __name__ == '__main__':

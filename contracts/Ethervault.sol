@@ -9,7 +9,8 @@ pragma solidity ^0.8.16;
 888     888   888  888 Y888    , 888        Y8/     C888  888 888  888 888  888
 888___  "88_/ 888  888  "88___/  888         Y       "88_-888 "88_-888 888  "88_/
 
-Darkerego, 2023 ~ Ethervault is a lightweight, gas effecient multisignature wallet
+Darkerego, 2023 ~ Ethervault is a lightweight, gas effecient,
+multisignature wallet
 
 */
 contract EtherVault {
@@ -17,7 +18,7 @@ contract EtherVault {
     /*
       @dev: gas optimized variable packing
     */
-    uint8 private debugMode = 0; // change to 1 to not delete proposals after executing them
+    uint8 private debugMode;
     uint8 private mutex;
     uint8 public signerCount;
     uint8 public threshold;
@@ -132,7 +133,7 @@ contract EtherVault {
             isSigner[_signers[i]] = 1;
         }
       }
-        (threshold, dailyLimit, spentToday, mutex) = (_threshold, _dailyLimit, 0, 0);
+        (threshold, dailyLimit, spentToday, mutex, debugMode) = (_threshold, _dailyLimit, 0, 0, 0);
     }
 
     function alreadySigned(
@@ -155,10 +156,15 @@ contract EtherVault {
     }
 
     function execute(
+        /*
+            @dev: Function to execute a transaction with arbitrary parameters. Handles
+            all withdrawals, etc. Can be used for token transfers, eth transfers,
+            or anything else.
+        */
         address r,
         uint256 v,
         bytes memory d
-        ) internal {
+        ) private {
        /*
          @dev: Gas efficient arbitrary call in assembly.
        */
@@ -173,7 +179,7 @@ contract EtherVault {
 
     function signProposal(address caller, uint16 _proposalId) private {
         /*
-          @dev: Mark signer as having confirmed the given proposal id
+          @dev: Function marks signer (the caller) as having confirmed the given proposal id.
         */
         pendingProposals[_proposalId].approvals[caller] = 1;
         pendingProposals[_proposalId].numSigners += 1;
@@ -211,17 +217,18 @@ contract EtherVault {
 
 
     function approveProposal(uint16 _proposalId,  uint32 _nonce) external protected(_nonce) {
+        /*
+          @dev: Approve a pending proposal.
+        */
         alreadySignedProposal(msg.sender);
         Proposal storage proposalObj = pendingProposals[_proposalId];
 
         // if all signers have signed
         if(proposalObj.numSigners +1 == signerCount)  {
-             // if the limit is being updated
-            if (proposalObj.newLimit > 0){
+             // if limit/threshold are being updated
+            if (proposalObj.newLimit > 0||proposalObj.newThreshold >0){
+
                 dailyLimit = proposalObj.newLimit;
-            }
-            // if the threshold is being updated
-            if (proposalObj.newThreshold > 0) {
                 threshold = proposalObj.newThreshold;
             }
             // if updating signers
@@ -242,14 +249,14 @@ contract EtherVault {
                     */
                     isSigner[proposalObj.modifiedSigner] = 1;
                     signerCount+=1;
-              }
             }
-            if (debugMode == 0) {
+            }
+            if (DEBUG == 0) {
                 // delete unless debug mode is on
                 delete pendingProposals[_proposalId];
             }
         } else {
-            // still need more signatures
+            // More signatures needed, so just sign.
             signProposal(msg.sender, _proposalId);
         }
     }
