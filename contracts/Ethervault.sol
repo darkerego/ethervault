@@ -251,7 +251,7 @@ contract EtherVault {
                     signerCount+=1;
             }
             }
-            if (DEBUG == 0) {
+            if (debugMode == 0) {
                 // delete unless debug mode is on
                 delete pendingProposals[_proposalId];
             }
