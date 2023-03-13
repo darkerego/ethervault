@@ -1,6 +1,16 @@
 # EtherVault (Beta)
 
+### TODO
+
+- Write automated tests for contract functions
+- Fuzzing with echidna
+- Thoroughly test the cli tool
+
 ### Changelog
+
+March 13/2023
+
+- Finished implementing all functions to the command line tool.
 
 March 9/2023
 
