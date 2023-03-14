@@ -5,6 +5,10 @@
 - Write automated tests for contract functions
 - Fuzzing with echidna
 - Thoroughly test the cli tool
+  - deposit works
+  - withdraw works
+  - confirm tx works
+  - balance works
 
 ### Changelog
 
