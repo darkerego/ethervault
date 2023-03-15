@@ -9,6 +9,8 @@
   - withdraw works
   - confirm tx works
   - balance works
+  - new proposal works
+  - approve proposal works
 
 ### Changelog
 
