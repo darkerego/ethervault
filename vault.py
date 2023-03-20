@@ -3,18 +3,17 @@
 import argparse
 import os.path
 
-import brownie
 import dotenv
 from eth_typing import ChecksumAddress
 from eth_utils import to_checksum_address, to_wei, to_hex, from_wei
 from secure_web3 import sw3_wallet, sw3
 from web3.contract import Contract
 
+import vault_lib.gas_estimator
+from vault_lib import eip1559_gas
 from vault_lib import exceptions
-from vault_lib import vault_abi
-from vault_lib import json_funcs
 from vault_lib import helpers
-import secure_web3.sw3_wallet
+from vault_lib import vault_abi
 
 
 class VaultCli:
@@ -92,27 +91,26 @@ class VaultCli:
         raise exceptions.ContractNotConfigured('Please specify your contract address on '
                                                'this network in your wallet file.')
 
-    def build_contract_interaction_tx(self, function: str, args) -> dict:
+    def build_contract_interaction_tx(self, function: str, args: dict) -> dict:
         """
         Builds contract interaction transaction.
         :param function: The function to call
         :param args: The arguments to that function
         :return: dict tx object
         """
-        # print(args)
-        contract = self.contract
-        # fn = getattr(contract.functions, function)
-        # args.update({'_nonce': self.get_contract_nonce() + 1})
-        # est_gas = fn(args).estimate_gas({'from': self.sw3.account.address})
-        max_pri_fee, max_fee = self.sw3_wallet.query_gas_api()
+
+        # max_pri_fee, max_fee = self.sw3_wallet.query_gas_api()
+        encoded_data = self.contract.encodeABI(function, args=args)
+        max_pri_fee, max_fee, gas_est = vault_lib.gas_estimator.gas_estimator(self.w3, self.sw3.account.address, self.contract_address, 0.0, 'medium', tx_data=encoded_data)
+        print(f'[+] Priority Fee: {max_pri_fee}, Max: {max_fee}, Gas: {gas_est}')
         raw_txn = {
             "from": self.sw3.account.address,
-            "gas": 200000,  # 200000
+            "gas": gas_est,  # 200000
             'maxPriorityFeePerGas': to_wei(max_pri_fee, 'gwei'),
             'maxFeePerGas': to_wei(max_fee, 'gwei'),
             "to": self.contract_address,
             "value": to_hex(0),
-            "data": self.contract.encodeABI(function, args=args),
+            "data": encoded_data,
             "nonce": self.w3.eth.get_transaction_count(self.sw3.account.address),
             "chainId": self.w3.eth.chain_id
         }
@@ -140,9 +138,9 @@ class VaultCli:
         raw_qty = int(self.sw3.w3.toWei(quantity, 'ether'))
 
         assert (
-                    self.get_contract_balance() >= raw_qty)  # [to_checksum_address(destination), int(raw_qty), bytes(data), int(self.get_contract_nonce()+1)]
+                    self.get_contract_balance() >= raw_qty)
         tx = self.build_contract_interaction_tx('submitTx', args={'recipient': to_checksum_address(destination),
-                                                                  'value': int(raw_qty), 'data': bytes(data),
+                                                                  'value': int(raw_qty), 'data': data,
                                                                   '_nonce': int(self.get_contract_nonce())})
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
@@ -163,12 +161,12 @@ class VaultCli:
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def approve_proposal(self, proposal_id) -> (hex, bool):
-        tx = self.build_contract_interaction_tx('approveProposal', {'_proposal_id': proposal_id,
+        tx = self.build_contract_interaction_tx('approveProposal', {'_proposalId': proposal_id,
                                                                     '_nonce': self.get_contract_nonce()})
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def revoke_proposal(self, proposal_id) -> (hex, bool):
-        tx = self.build_contract_interaction_tx('deleteProposal', {'_proposal_id': proposal_id,
+        tx = self.build_contract_interaction_tx('deleteProposal', {'_proposalId': proposal_id,
                                                                    '_nonce': self.get_contract_nonce()})
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
@@ -185,7 +183,7 @@ def vault_cli():
     args = argparse.ArgumentParser()
     args.add_argument('-w', '--wallet', type=str, default='keys/default_wallet.json')
     args.add_argument('-i', '--init', action='store_true', help='Import private key and initialize the wallet.')
-    args.add_argument('-n', '--network', type=str, default='goerli', choices=['goerli', 'ethereum'],
+    args.add_argument('-n', '--network', type=str, default='goerli', choices=['goerli', 'ethereum', 'arbitrum'],
                       help='The EVM chain to operate on.')
     subparsers = args.add_subparsers(dest='command')
     deposit = subparsers.add_parser('deposit', help='Deposit ether')
@@ -199,9 +197,9 @@ def vault_cli():
     confirm = subparsers.add_parser('confirm', help='Confirm a transaction.')
     confirm.add_argument('-t', '--txid', help='The transaction ID.')
     init_proposal = subparsers.add_parser('proposal', help='Create a new proposal.')
-    init_proposal.add_argument('-s', '--signer', type=str, help='Signer address to add or revoke.')
-    init_proposal.add_argument('-t', '--threshold', type=int, help='Proposed new threshold.')
-    init_proposal.add_argument('-l', '--limit', type=float, help='Proposed new daily spending limit.')
+    init_proposal.add_argument('-s', '--signer', type=str, default=None, help='Signer address to add or revoke.')
+    init_proposal.add_argument('-t', '--threshold', type=int, default=0, help='Proposed new threshold.')
+    init_proposal.add_argument('-l', '--limit', type=float, default=0, help='Proposed new daily spending limit.')
     approve = subparsers.add_parser('approve', help='Approve a pending proposal.')
     approve.add_argument('-i', '--id', type=int, help='The pending proposal ID.')
     revoke = subparsers.add_parser('revoke', help='Revoke a pending proposal.')
@@ -220,7 +218,7 @@ def vault_cli():
     contract_address = os.environ.get(f'ethervault_{args.network}')
     print(f'[+] Contract is:  {contract_address}')
     print(f'[+] Loading wallet "{args.wallet}"')
-    if args.command in ['deposit', 'withdraw', 'cancel', 'confirm', 'propose', 'revoke', 'approve']:
+    if args.command in ['deposit', 'withdraw', 'cancel', 'confirm', 'proposal', 'revoke', 'approve']:
         unlock = True
 
     vault = VaultCli(args.wallet, args.network, contract_address, args.init, unlock)
@@ -242,46 +240,39 @@ def vault_cli():
         print(f'[+] Ether value: {args.quantity}')
         print(f'[+] File with transaction data: {args.file}')
         if args.file:
-            data = helpers.read_data(args.file)
+            data = bytes(helpers.read_data(args.file).encode())
             print(f'[+] Read {len(data)} bytes from {args.file}')
         else:
             data = b'0x'
-        ret = vault.propose_withdrawal(to_checksum_address(args.recipient), args.quantity, data)
-        if ret:
-            print(f'[+] TXID: {ret}')
+        helpers.parse_tx_ret_val(vault.propose_withdrawal(to_checksum_address(args.recipient), args.quantity, data))
 
     if args.command == 'cancel':
         print(f'[+] Canceling pending transaction with txid: {args.txid}')
-        ret = vault.cancel_withdrawal(args.txid)
-        if ret:
-            print(f'[+] TXID: {ret}')
+        helpers.parse_tx_ret_val(ret = vault.cancel_withdrawal(args.txid))
 
     if args.command == 'confirm':
         print(f'[+] Confirming transaction with txid {args.txid} using the key: {args.wallet}')
-        ret = vault.confirm_withdrawal(int(args.txid))
-        if ret:
-            print(f'[+] TXID: {ret}')
+        helpers.parse_tx_ret_val(ret = vault.confirm_withdrawal(int(args.txid)))
 
     if args.command == 'proposal':
+        if args.signer is None:
+            args.signer = '0x0000000000000000000000000000000000000000'
+        if args.limit:
+            args.limit = to_wei(args.limit, 'ether')
+
         print(f'[+] Will create a new proposal with the following parameters:')
-        print(f'[+] Signer (addition/revokation): {args.signer}')
+        print(f'[+] Signer (addition/revocation): {args.signer}')
         print(f'[+] New threshold: {args.threshold}')
         print(f'[+] New daily limit: {args.limit}')
-        ret = vault.initiate_proposal(args.signers, args.limit, args.threshold)
-        if ret:
-            print(f'[+] TXID: {ret}')
+        helpers.parse_tx_ret_val(vault.initiate_proposal(to_checksum_address(args.signer), int(args.limit), int(args.threshold)))
 
     if args.command == 'approve':
         print(f'[+] Approving pending proposal with ID: {args.id}')
-        ret = vault.approve_proposal(args.id)
-        if ret:
-            print(f'[+] TXID: {ret}')
+        helpers.parse_tx_ret_val(vault.approve_proposal(args.id))
 
     if args.command == 'revoke':
         print(f'[+] Revoking pending proposal with ID: {args.id}')
-        ret = vault.revoke_proposal(args.id)
-        if ret:
-            print(f'[+] TXID: {ret}')
+        helpers.parse_tx_ret_val(vault.revoke_proposal(args.id))
 
     if args.command == 'getprop':
         print(f'[+] Calling contract to get the value of property {args.name}')

@@ -13,3 +13,10 @@ def read_as_lines(filename):
         with open(filename, 'r') as f:
             return f.readlines()
     return []
+
+
+def parse_tx_ret_val(ret):
+    if ret:
+        print(f'[+] TXID: {ret}')
+    else:
+        print('[!] Transaction failed to broadcast.')
