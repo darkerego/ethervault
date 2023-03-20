@@ -35,7 +35,7 @@ March 10, 2023
 <p>
 Ethervault is a multisignature smart contract designed for storing ethereum that enforces a spending limit. 
 It can also store ERC20 (and other) tokens as well, although currently the spending limits will only apply to 
-Ethereum.
+Ethereum. Note: I have not tested withdrawing tokens yet, so you should test before storing tokens in this contract.
 </p>
 
 ### Features
