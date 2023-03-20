@@ -4,13 +4,7 @@
 
 - Write automated tests for contract functions
 - Fuzzing with echidna
-- Thoroughly test the cli tool
-  - deposit works
-  - withdraw works
-  - confirm tx works
-  - balance works
-  - new proposal works
-  - approve proposal works
+- Confirm that token withdrawals work (theoretically I don't see why they wouldn't work)
 
 ### Changelog
 
