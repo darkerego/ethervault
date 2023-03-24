@@ -54,10 +54,10 @@ contract EtherVault {
       Tried using bytes, but no good way to convert them to strings,
       so that leaves unsigned ints as error codes.
     */
-    bytes2 aErr = "03";
-    bytes2 pErr = "12";
-    bytes2 tErr = "05";
-    bytes2 nErr = "06";
+    bytes2 authError = "03";
+    bytes2 proposalError = "12";
+    bytes2 transactionError = "05";
+    bytes2 nonceError = "06";
     error FailAndRevert(bytes2);
 
     /*
@@ -96,8 +96,8 @@ contract EtherVault {
           @dev: Checks if sender is a signer, checks nonce,
           and ensures system state is not locked.
         */
-        if( isSigner[s] == 0 ||_nonce <= execNonce|| mutex == 1){
-            revert FailAndRevert(aErr);
+        if( isSigner[s] == 0 ||_nonce <= execNonce|| _nonce > execNonce+1 ||mutex == 1){
+            revert FailAndRevert(authError);
        } // increment nonce if all checks pass
        execNonce += 1;
     }
@@ -151,7 +151,7 @@ contract EtherVault {
 
     function alreadySignedProposal(address signer) private view {
         if (pendingProposals[proposalId].approvals[signer] == 1){
-            revert FailAndRevert(pErr);
+            revert FailAndRevert(proposalError);
         }
     }
 
@@ -274,7 +274,7 @@ contract EtherVault {
         ) external protected(_nonce) {
 
         if (pendingTxs[txid].dest == address(0)) {
-            revert FailAndRevert(tErr);
+            revert FailAndRevert(transactionError);
         }
         delete pendingTxs[txid];
     }
@@ -293,7 +293,7 @@ contract EtherVault {
         Transaction storage _tx = pendingTxs[txid];
         if(!alreadySigned(txid, msg.sender)){
             if (_tx.dest == address(0)){
-                revert FailAndRevert(tErr); // tx does not exist
+                revert FailAndRevert(transactionError); // tx does not exist
             }
             if(_tx.numSigners + 1 >= threshold){
                 execute(_tx.dest, _tx.value, _tx.data);
@@ -303,7 +303,7 @@ contract EtherVault {
             }
 
         } else {
-            revert FailAndRevert(tErr);
+            revert FailAndRevert(transactionError);
         }
     }
 
@@ -341,7 +341,7 @@ contract EtherVault {
         }
         // make sure we have equity for this request
         if(self < value){
-            revert FailAndRevert(tErr);
+            revert FailAndRevert(transactionError);
         }
 
         if (underLimit(value)) {
