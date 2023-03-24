@@ -7,6 +7,13 @@
 - Confirm that token withdrawals work (theoretically I don't see why they wouldn't work)
 
 ### Changelog
+March 24/2023
+
+- Fixed a vulnerability with the way that the nonce logic was implemented. Previously, 
+  it was possible to submit a transaction with a very high nonce, which could render the 
+  entire contract unusable, trapping funds forever. Implemented a check to make sure that 
+  the nonce can only ever increment by +1. 
+
 
 March 13/2023
 
