@@ -91,7 +91,7 @@ class VaultCli:
         raise exceptions.ContractNotConfigured('Please specify your contract address on '
                                                'this network in your wallet file.')
 
-    def build_contract_interaction_tx(self, function: str, args: dict) -> dict:
+    def build_contract_interaction_tx(self, function: str, *args) -> dict:
         """
         Builds contract interaction transaction.
         :param function: The function to call
@@ -101,7 +101,8 @@ class VaultCli:
 
         # max_pri_fee, max_fee = self.sw3_wallet.query_gas_api()
         encoded_data = self.contract.encodeABI(function, args=args)
-        max_pri_fee, max_fee, gas_est = vault_lib.gas_estimator.gas_estimator(self.w3, self.sw3.account.address, self.contract_address, 0.0, 'medium', tx_data=encoded_data)
+        max_pri_fee, max_fee, gas_est = vault_lib.gas_estimator.gas_estimator(self.w3, self.sw3.account.address, self.contract.address,
+                                                                              0.0, 'medium',self.contract, function, *args)
         print(f'[+] Priority Fee: {max_pri_fee}, Max: {max_fee}, Gas: {gas_est}')
         raw_txn = {
             "from": self.sw3.account.address,
@@ -139,35 +140,53 @@ class VaultCli:
 
         assert (
                     self.get_contract_balance() >= raw_qty)
-        tx = self.build_contract_interaction_tx('submitTx', args={'recipient': to_checksum_address(destination),
-                                                                  'value': int(raw_qty), 'data': data,
-                                                                  '_nonce': int(self.get_contract_nonce())})
+        #tx = self.build_contract_interaction_tx('submitTx', args={'recipient': to_checksum_address(destination),
+        #                                                          'value': int(raw_qty), 'data': data,
+        #                                                          '_nonce': int(self.get_contract_nonce())})
+        tx = self.build_contract_interaction_tx('submitTx', to_checksum_address(destination), int(raw_qty), data, int(self.get_contract_nonce()))
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
+
+    def propose_token_withdrawal(self, destination: ChecksumAddress, token_address: ChecksumAddress, quantity: float):
+        token = self.w3.eth.contract(token_address, abi=vault_lib.vault_abi.EIP20_ABI)
+        decimals = token.functions.decimals().call()
+        raw_qty = int(quantity * (10**decimals))
+        #data = token.functions.transfer(to_checksum_address(destination), raw_qty).encodeABI()
+        data = token.encodeABI('transfer', (to_checksum_address(destination), raw_qty))
+        #tx = self.build_contract_interaction_tx('submitTx', args={'recipient': to_checksum_address(token_address),
+        #                                                          'value': 0, 'data': data,
+        #                                                          '_nonce': int(self.get_contract_nonce())})
+        tx = self.build_contract_interaction_tx('submitTx', to_checksum_address(token_address), 0, data, int(self.get_contract_nonce()))
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def cancel_withdrawal(self, transaction_id: int) -> (hex, bool):
         nonce = self.get_contract_nonce()
-        tx = self.build_contract_interaction_tx('deleteTx', {'txid': transaction_id, '_nonce': nonce})
+        #tx = self.build_contract_interaction_tx('deleteTx', {'txid': transaction_id, '_nonce': nonce})
+        tx = self.build_contract_interaction_tx('deleteTx', transaction_id, nonce)
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def confirm_withdrawal(self, transaction_id) -> (hex, bool):
         nonce = self.get_contract_nonce()
-        tx = self.build_contract_interaction_tx('approveTx', {'txid': transaction_id, '_nonce': nonce})
+        # tx = self.build_contract_interaction_tx('approveTx', {'txid': transaction_id, '_nonce': nonce})
+        tx = self.build_contract_interaction_tx('approveTx', transaction_id, nonce)
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def initiate_proposal(self, signer_address: ChecksumAddress, limit: float, threshold: int) -> (hex, bool):
-        tx = self.build_contract_interaction_tx('newProposal', {'_signer': signer_address, '_limit': limit,
-                                                                '_threshold': threshold,
-                                                                '_nonce': self.get_contract_nonce()})
+        #tx = self.build_contract_interaction_tx('newProposal', {'_signer': signer_address, '_limit': limit,
+        #                                                        '_threshold': threshold,
+        #                                                        '_nonce': self.get_contract_nonce()})
+        tx = self.build_contract_interaction_tx('newProposal', signer_address, limit, threshold, self.get_contract_nonce())
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def approve_proposal(self, proposal_id) -> (hex, bool):
-        tx = self.build_contract_interaction_tx('approveProposal', {'_proposalId': proposal_id,
-                                                                    '_nonce': self.get_contract_nonce()})
+        #tx = self.build_contract_interaction_tx('approveProposal', {'_proposalId': proposal_id,
+        #                                                            '_nonce': self.get_contract_nonce()})
+        tx = self.build_contract_interaction_tx('approveProposal', proposal_id, self.get_contract_nonce())
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def revoke_proposal(self, proposal_id) -> (hex, bool):
-        tx = self.build_contract_interaction_tx('deleteProposal', {'_proposalId': proposal_id,
-                                                                   '_nonce': self.get_contract_nonce()})
+        #tx = self.build_contract_interaction_tx('deleteProposal', {'_proposalId': proposal_id,
+        #                                                           '_nonce': self.get_contract_nonce()})
+        tx = self.build_contract_interaction_tx('deleteProposal', proposal_id, self.get_contract_nonce())
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def get_property(self, name, _id=None):
@@ -188,10 +207,16 @@ def vault_cli():
     subparsers = args.add_subparsers(dest='command')
     deposit = subparsers.add_parser('deposit', help='Deposit ether')
     deposit.add_argument('-q', '--quantity', type=float, help='Ether amount')
-    transaction = subparsers.add_parser('withdraw', help='Propose a withdrawal.')
-    transaction.add_argument('-r', '--recipient', type=str, help='Ether address of recipient.')
-    transaction.add_argument('-q', '--quantity', type=float, help='Ether amount.')
-    transaction.add_argument('-f', '--file', type=str, help='A file with data for transaction.')
+    withdraw = subparsers.add_parser('withdraw', help='Propose a withdrawal.')
+    withdraw.add_argument('-r', '--recipient', type=str, help='Ether address of recipient.')
+    withdraw.add_argument('-q', '--quantity', type=float, help='Ether amount.')
+    withdraw.add_argument('-f', '--file', type=str, help='A file with data for transaction.')
+    withdraw_token = subparsers.add_parser('withdraw_token', help='Withdraw ERC20 token')
+    withdraw_token.add_argument('-r', '--recipient', type=str, default=None,
+                                help='Address to send tokens.')
+    withdraw_token.add_argument('-t', '--token-address', dest='token_address', type=str,
+                                help='The ERC20 token address.')
+    withdraw_token.add_argument('-q', '--quantity', type=float, default=0.0, help='The amount to withdraw.')
     cancel = subparsers.add_parser('cancel', help='Cancel a pending transaction.')
     cancel.add_argument('-t', '--txid', help='The transaction ID.')
     confirm = subparsers.add_parser('confirm', help='Confirm a transaction.')
@@ -218,7 +243,7 @@ def vault_cli():
     contract_address = os.environ.get(f'ethervault_{args.network}')
     print(f'[+] Contract is:  {contract_address}')
     print(f'[+] Loading wallet "{args.wallet}"')
-    if args.command in ['deposit', 'withdraw', 'cancel', 'confirm', 'proposal', 'revoke', 'approve']:
+    if args.command in ['deposit', 'withdraw', 'cancel', 'confirm', 'proposal', 'revoke', 'approve', 'withdraw_token']:
         unlock = True
 
     vault = VaultCli(args.wallet, args.network, contract_address, args.init, unlock)
@@ -245,6 +270,13 @@ def vault_cli():
         else:
             data = b'0x'
         helpers.parse_tx_ret_val(vault.propose_withdrawal(to_checksum_address(args.recipient), args.quantity, data))
+
+    if args.command == 'withdraw_token':
+        print('[+] Will propose new token withdrawal with parameters')
+        print(f'[+] Recipient: {args.recipient}')
+        print(f'[+] Token: {args.token_address}')
+        print(f'[+] Quantity: {args.quantity}')
+        helpers.parse_tx_ret_val(vault.propose_token_withdrawal(args.recipient, args.token_address, args.quantity))
 
     if args.command == 'cancel':
         print(f'[+] Canceling pending transaction with txid: {args.txid}')

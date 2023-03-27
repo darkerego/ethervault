@@ -4,9 +4,16 @@
 
 - Write automated tests for contract functions
 - Fuzzing with echidna
-- Confirm that token withdrawals work (theoretically I don't see why they wouldn't work)
 
 ### Changelog
+March 26/2023
+
+- Switched execute(r,v,d) from inline assembly to regular solidity because token transfers were failing, I am 
+ not entirely sure why, but it must be something with the YUL call syntax because it works fine with Solidity's call(). 
+
+- Updated the CLI tool's gas estimation logic which required a refractor of the build_contract_interaction_tx function 
+   calls.
+
 March 24/2023
 
 - Fixed a vulnerability with the way that the nonce logic was implemented. Previously, 

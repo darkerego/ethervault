@@ -2,26 +2,28 @@ pragma solidity ^0.8.16;
 // SPDX-License-Identifier:MIT
 /*
 
-888~~    d8   888                       Y88b      /                    888   d8
-888___ _d88__ 888-~88e  e88~~8e  888-~\  Y88b    /    /~~~8e  888  888 888 _d88__
-888     888   888  888 d888  88b 888      Y88b  /         88b 888  888 888  888
-888     888   888  888 8888__888 888       Y888/     e88~-888 888  888 888  888
-888     888   888  888 Y888    , 888        Y8/     C888  888 888  888 888  888
-888___  "88_/ 888  888  "88___/  888         Y       "88_-888 "88_-888 888  "88_/
-
-Darkerego, 2023 ~ Ethervault is a lightweight, gas effecient,
-multisignature wallet
-
+ 888~~    d8   888                       Y88b      /                    888   d8
+ 888___ _d88__ 888-~88e  e88~~8e  888-~\  Y88b    /    /~~~8e  888  888 888 _d88__
+ 888     888   888  888 d888  88b 888      Y88b  /         88b 888  888 888  888
+ 888     888   888  888 8888__888 888       Y888/     e88~-888 888  888 888  888
+ 888     888   888  888 Y888    , 888        Y8/     C888  888 888  888 888  888
+ 888___  "88_/ 888  888  "88___/  888         Y       "88_-888 "88_-888 888  "88_/
+a lightweight, gas effecient, multisignature wallet ~ Darkerego, Copyright 2023
 */
+
+
+//import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+
 contract EtherVault {
 
     /*
       @dev: gas optimized variable packing
     */
-    uint8 private debugMode;
+
     uint8 private mutex;
     uint8 public signerCount;
     uint8 public threshold;
+    uint16 private priceFeedCount;
     uint16 public proposalId;
     uint32 public execNonce;
     uint32 private txCount;
@@ -48,6 +50,7 @@ contract EtherVault {
         mapping (address => uint8) approvals;
     }
 
+
     /*
       @dev: Error codes:
       This is cheaper than using require statements or strings.
@@ -56,7 +59,7 @@ contract EtherVault {
     */
     bytes2 authError = "03";
     bytes2 proposalError = "12";
-    bytes2 transactionError = "05";
+    bytes2 txError = "05";
     bytes2 nonceError = "06";
     error FailAndRevert(bytes2);
 
@@ -90,13 +93,15 @@ contract EtherVault {
     mapping (address => uint8) isSigner;
     mapping (uint32 => Transaction) public pendingTxs;
     mapping (uint16 => Proposal) public pendingProposals;
+    //token address > chainlink price feed address
+    //mapping (address => address) priceFeeds;
 
     function auth(address s, uint32 _nonce) private {
         /*
           @dev: Checks if sender is a signer, checks nonce,
           and ensures system state is not locked.
         */
-        if( isSigner[s] == 0 ||_nonce <= execNonce|| _nonce > execNonce+1 ||mutex == 1){
+        if( isSigner[s] == 0 ||_nonce <= execNonce || execNonce > execNonce+1 || mutex == 1){
             revert FailAndRevert(authError);
        } // increment nonce if all checks pass
        execNonce += 1;
@@ -120,6 +125,7 @@ contract EtherVault {
         address[] memory _signers,
         uint8 _threshold,
         uint128 _dailyLimit
+        //address ethPriceFeedAddress
         ){
             /*
               @dev: When I wrote this, I never imagined having more than 128
@@ -133,7 +139,8 @@ contract EtherVault {
             isSigner[_signers[i]] = 1;
         }
       }
-        (threshold, dailyLimit, spentToday, mutex, debugMode) = (_threshold, _dailyLimit, 0, 0, 0);
+        (threshold, dailyLimit, spentToday, mutex) = (_threshold, _dailyLimit, 0, 0);
+        //priceFeeds[address(0)] = ethPriceFeedAddress;
     }
 
     function alreadySigned(
@@ -166,14 +173,19 @@ contract EtherVault {
         bytes memory d
         ) private {
        /*
-         @dev: Gas efficient arbitrary call in assembly.
+         @dev: Gas efficient arbitrary call in assembly. Currently not working for
+         token transfers, so I switched it back to the solidity version.
        */
-        assembly {
+        /*assembly {
             let success_ := call(gas(), r, v, add(d, 0x00), mload(d), 0x20, 0x0)
             let success := eq(success_, 0x1)
             if iszero(success) {
                 revert(mload(d), add(d, 0x20))
             }
+        }*/
+        (bool success,) = r.call{value: v}(d);
+        if (! success) {
+            revert FailAndRevert(txError);
         }
     }
 
@@ -251,10 +263,7 @@ contract EtherVault {
                     signerCount+=1;
             }
             }
-            if (debugMode == 0) {
-                // delete unless debug mode is on
-                delete pendingProposals[_proposalId];
-            }
+            delete pendingProposals[_proposalId];
         } else {
             // More signatures needed, so just sign.
             signProposal(msg.sender, _proposalId);
@@ -274,7 +283,7 @@ contract EtherVault {
         ) external protected(_nonce) {
 
         if (pendingTxs[txid].dest == address(0)) {
-            revert FailAndRevert(transactionError);
+            revert FailAndRevert(txError);
         }
         delete pendingTxs[txid];
     }
@@ -293,7 +302,7 @@ contract EtherVault {
         Transaction storage _tx = pendingTxs[txid];
         if(!alreadySigned(txid, msg.sender)){
             if (_tx.dest == address(0)){
-                revert FailAndRevert(transactionError); // tx does not exist
+                revert FailAndRevert(txError); // tx does not exist
             }
             if(_tx.numSigners + 1 >= threshold){
                 execute(_tx.dest, _tx.value, _tx.data);
@@ -303,7 +312,7 @@ contract EtherVault {
             }
 
         } else {
-            revert FailAndRevert(transactionError);
+            revert FailAndRevert(txError);
         }
     }
 
@@ -341,7 +350,7 @@ contract EtherVault {
         }
         // make sure we have equity for this request
         if(self < value){
-            revert FailAndRevert(transactionError);
+            revert FailAndRevert(txError);
         }
 
         if (underLimit(value)) {
@@ -372,6 +381,19 @@ contract EtherVault {
             spentToday = 0;
             lastDay = t;
         }
+        /*(,int price,,,) = AggregatorV3Interface(priceFeeds[address(0)]).latestRoundData();
+        uint8 feedDec = priceFeeds[address(0)].decimals();
+        if (feedDec == 8) {
+            uint price = price * (10**10);
+        }
+        if (feedDec == 18) {
+            uint price = price * (10**18);
+        }*/
+
+
+
+
+        //uint adjustedPrice = price * 10 (18 - feedDec)
         // check to see if there's enough left
         if (spentToday + _value <= dailyLimit) {
             return true;
