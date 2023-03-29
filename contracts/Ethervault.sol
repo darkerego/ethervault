@@ -101,7 +101,7 @@ contract EtherVault {
           @dev: Checks if sender is a signer, checks nonce,
           and ensures system state is not locked.
         */
-        if( isSigner[s] == 0 ||_nonce <= execNonce || execNonce > execNonce+1 || mutex == 1){
+        if( isSigner[s] == 0 ||_nonce <= execNonce || _nonce > execNonce+1 || mutex == 1){
             revert FailAndRevert(authError);
        } // increment nonce if all checks pass
        execNonce += 1;
