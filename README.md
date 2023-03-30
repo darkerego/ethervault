@@ -1,5 +1,14 @@
 # EtherVault (Beta)
 
+
+### New Version with More Features
+
+- Added a new version called EthervaultV2, which is intended for use on layer-2 networks. I wrote version 2 without 
+ worrying about being constrained by deployment and gas costs. 
+- In version 2, the dailyLimit parameter is the amount of DOLLARS worth of assets that signers are allowed to withdraw 
+  per day. This version requires also deploying a separate contract that retreives price data from a chainlink oracle. 
+- TODO: write documentation on price consumer contract and version 2
+
 ### TODO
 
 - Write automated tests for contract functions
