@@ -9,6 +9,10 @@
   per day. This version requires also deploying a separate contract that retreives price data from a chainlink oracle. 
 - TODO: write documentation on price consumer contract and version 2
 
+<p>
+<b>Note: </b> I have NOT tested version 2, and version 1 is also still pretty beta!
+</p>
+
 ### TODO
 
 - Write automated tests for contract functions
