@@ -359,8 +359,8 @@ contract EtherVault {
         require(! alreadySigned(txid, msg.sender), dupSigErr);
         require(_tx.dest != address(0), txNotFoundErr);
         if(_tx.numSigners + 1 >= threshold){
-            delete pendingTxs[txid];
             execute(_tx.dest, _tx.value, _tx.data);
+            delete pendingTxs[txid];
         } else {
             signTx(txid, msg.sender);
         }
