@@ -123,6 +123,9 @@ class VaultCli:
     def get_contract_balance(self) -> int:
         return self.sw3.w3.eth.get_balance(self.contract_address)
 
+    def get_eth_account_balance(self, address):
+        return self.w3.eth.get_balance(to_checksum_address(address))
+
     def deposit_ether(self, qty: float) -> (hex, bool):
         """
         Deposit in contract
@@ -235,7 +238,9 @@ def vault_cli():
                                   'signerCount',
                                   'spentToday', 'threshold'], help='Name of property to get value.')
     getprop.add_argument('-i', '--id', help='ID parameter for pending tx/proposal methods.')
-    subparsers.add_parser('balance', help='Get balance of the contract.')
+    balances = subparsers.add_parser('balance', help='Get balance of the contract or another address.')
+    balances.add_argument('-a', '--address', type=str, default=None, help='Balance of this account.')
+
 
     args = args.parse_args()
     # print(args)
@@ -272,7 +277,7 @@ def vault_cli():
         helpers.parse_tx_ret_val(vault.propose_withdrawal(to_checksum_address(args.recipient), args.quantity, data))
 
     if args.command == 'withdraw_token':
-        print('[+] Will propose new token withdrawal with parameters')
+        print(f'[+] Will propose new token withdrawal with parameters: ')
         print(f'[+] Recipient: {args.recipient}')
         print(f'[+] Token: {args.token_address}')
         print(f'[+] Quantity: {args.quantity}')
@@ -312,8 +317,11 @@ def vault_cli():
         print(f'[+] Result:\n{ret}')
 
     if args.command == 'balance':
-        balance = from_wei(vault.get_contract_balance(), 'ether')
-        print(f'[+] Balance: {balance}')
+        if args.address:
+            print(f'[+] Balance of {args.address}: {vault.get_eth_account_balance(args.address)}')
+        else:
+            balance = from_wei(vault.get_contract_balance(), 'ether')
+            print(f'[+] Balance: {balance}')
 
 
 if __name__ == '__main__':

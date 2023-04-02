@@ -17,15 +17,16 @@ value.  ~ Darkerego, Copyright 2023
 
 
 
-import "interfaces/IPriceFeeder.sol";
+//import "interfaces/IPriceFeeder.sol";
 import "interfaces/IERC20.sol";
+import "interfaces/IAggregatorV3.sol";
 
-contract EtherVault {
+contract EtherVaultL2 {
 
     /*
       @dev: gas optimized variable packing
     */
-
+    uint8 public paused;
     uint8 private mutex;
     uint8 public signerCount;
     uint8 public threshold;
@@ -35,12 +36,13 @@ contract EtherVault {
     uint32 private lastDay;
     uint128 public dailyLimit;
     uint128 public spentToday;
-    address public immutable consumerAddress;
+    // address public immutable consumerAddress;
 
 
     struct Proposal{
         address proposer;
         address modifiedSigner;
+        uint8 paused;
         uint8 newThreshold;
         uint8 numSigners;
         uint32 initiated;
@@ -64,6 +66,7 @@ contract EtherVault {
     string constant txFailErr = "Call failed";
     string constant txNotFoundErr = "Transaction not found";
     string constant insFundErr = "Insufficient funds";
+    string constant authErr = 'Only signer can call!';
 
     /*
       @dev: Mapping Indexes
@@ -78,7 +81,7 @@ contract EtherVault {
       @dev: Tracked token mapping (1 == enabled):
       tokenAddress => 1
     */
-    mapping (address => uint8) public trackedTokens;
+    mapping (address => address) public trackedTokens;
 
     function auth(
         address s,
@@ -91,6 +94,21 @@ contract EtherVault {
 
         require(isSigner[s] == 1 && _nonce == execNonce +1 && mutex == 0, "!Auth/Nonce/Mutex");
         execNonce += 1;
+    }
+
+    function isPaused() private view {
+        /*
+          Called by modifier checkPaused
+        */
+        require(paused == 0, "System paused");
+    }
+
+    modifier checkPaused {
+        /*
+          Revert if the contract is paused.
+        */
+        isPaused();
+        _;
     }
 
 
@@ -121,13 +139,13 @@ contract EtherVault {
         address[] memory _signers,
         uint8 _threshold,
         uint128 _dailyDollarLimit,
-        address _consumerAddress
+        address ethPriceAggregator
         ){
         /*
             @dev: Since we're not constrained by deployment size in this layer 2 version,
             we can afford to validate the constructor arguments.
         */
-        require(_consumerAddress != address(0), "Consumer is zero address");
+        require(ethPriceAggregator != address(0), "EthFeed is zero address");
         require(_signers.length >= 3, "Need at least 3 signers");
         require(_threshold < _signers.length && _threshold >= 2, "Threshold >= 2 < len(signers)");
 
@@ -142,13 +160,15 @@ contract EtherVault {
             isSigner[_signers[i]] = 1;
         }
       }
-        (threshold, dailyLimit, consumerAddress, spentToday, mutex) = (_threshold, _dailyDollarLimit, _consumerAddress, 0, 0);
-        trackedTokens[address(0)] = 1;
+        (threshold, dailyLimit, spentToday, mutex) = (_threshold, _dailyDollarLimit, 0, 0);
+        trackedTokens[address(0)] = ethPriceAggregator;
     }
     /*
        @dev: Allow arbitrary deposits to contract.
     */
     receive() external payable {}
+
+
 
     function trackToken(
         /*
@@ -157,17 +177,16 @@ contract EtherVault {
           Requires the consumer contract actually supports this token.
         */
         address tokenAddress,
+        address feedAddress,
         uint32 _nonce
         ) external protected(_nonce) {
-            require(trackedTokens[tokenAddress] == 0, "Already tracking.");
-            require(IPriceFeeder(consumerAddress).checkFeedExists(tokenAddress), "Not enabled.");
-            trackedTokens[tokenAddress] = 1;
+            require(trackedTokens[tokenAddress] == address(0), "Already tracking.");
+            require(AggregatorV3Interface(feedAddress).decimals() == 8, "Decimals!=8");
+            trackedTokens[tokenAddress] = feedAddress;
     }
 
-    function alreadySigned(
-        /*
-          @dev: Checks to make sure that signer cannot sign multiple times.
-        */
+    /*function alreadySigned(
+
         uint32 txid,
         address owner
     ) private view returns(bool){
@@ -175,17 +194,18 @@ contract EtherVault {
            return false;
        }
        return true;
-    }
-
+    }*/
+    /*
     function alreadySignedProposal(
-        /*
-          @dev: revert if caller already signed
-        */
+
+          //@dev: revert if caller already signed
+
         address signer,
         uint16 _proposalId
         ) private view {
         require(pendingProposals[_proposalId].approvals[signer] == 0, dupSigErr);
     }
+    */
 
     function execute(
         /*
@@ -208,7 +228,6 @@ contract EtherVault {
                 revert(mload(d), add(d, 0x20))
             }
         }*/
-
         assembly {
             let ptr := mload(0x40)
             // solium-disable-line
@@ -224,18 +243,13 @@ contract EtherVault {
             )
             let retSz := returndatasize()
             returndatacopy(ptr, 0, retSz)
-            switch success
-            case 0 {
-                revert(ptr, retSz)
-            }
-            default {
-                return(ptr, retSz)
-            }
+            if iszero(success) {
+                revert(mload(data), add(data, 0x40))
         }
 
         //(bool success,) = recipient.call{value: _value}(data);
         //require(success, txFailErr);
-    }
+    }}
 
     function signProposal(
         /*
@@ -292,7 +306,7 @@ contract EtherVault {
           @dev: Approve a pending proposal and execute it if all required
            signers are accounted for.
         */
-        alreadySignedProposal(msg.sender, _proposalId);
+        require(pendingProposals[_proposalId].approvals[msg.sender] == 0, dupSigErr);
         Proposal storage proposalObj = pendingProposals[_proposalId];
 
         // if all signers have signed
@@ -354,12 +368,13 @@ contract EtherVault {
         */
         uint32 txid,
         uint32 _nonce
-        ) external protected(_nonce) {
+        ) external protected(_nonce) checkPaused {
         Transaction storage _tx = pendingTxs[txid];
-        require(! alreadySigned(txid, msg.sender), dupSigErr);
+        require(pendingTxs[txid].approvals[owner] == 0, dupSigErr);
         require(_tx.dest != address(0), txNotFoundErr);
         if(_tx.numSigners + 1 >= threshold){
             execute(_tx.dest, _tx.value, _tx.data);
+            // should not have any re-entrency vulnerability because of mutex checks
             delete pendingTxs[txid];
         } else {
             signTx(txid, msg.sender);
@@ -440,7 +455,7 @@ contract EtherVault {
         /*
           @dev: encode transaction to transfer erc20 token
         */
-    ) external protected(_nonce) returns (uint32){
+    ) external protected(_nonce) checkPaused returns (uint32){
         checkBalance(tokenAddress, amount);
         uint32 txid = 0;
         if (tokenAddress == address(0)) {
@@ -495,7 +510,7 @@ contract EtherVault {
         bytes memory data,
         uint32 _nonce
 
-        ) external payable protected(_nonce) returns(uint32) {
+        ) external protected(_nonce) returns(uint32) {
 
         // gas effecient balance call
         checkBalance(address(0), value);
@@ -503,6 +518,39 @@ contract EtherVault {
 
 
 
+    }
+
+
+    function getDollarValue(address tokenAddress, uint256 amount)
+      /*
+        @dev Convert arbitrary amount of token into a dollar amount.
+      */
+        public
+        view
+        returns (uint256)
+    {
+        uint decimals;
+        if (tokenAddress == address(0)) {
+            decimals = 18;
+        } else {
+            decimals = IERC20(tokenAddress).decimals();
+        }
+
+        (, int256 answer, , , ) = AggregatorV3Interface(trackedTokens[tokenAddress]).latestRoundData();
+        uint price;
+        if (decimals == 8) {
+            price = uint(answer);
+        }
+        else if (decimals > 8) {
+            price = (uint(answer) * (decimals - 8)**10);
+        }
+        else {
+
+            price = uint(answer) / 10**(8 - decimals);
+        }
+
+        return (price * amount) / (10** decimals);
+        // the actual ETH/USD conversation rate, after adjusting the extra 0s.
     }
 
     function underLimit(
@@ -521,7 +569,7 @@ contract EtherVault {
             spentToday = 0;
             lastDay = t;
         }
-        if (trackedTokens[tokenAddress] == 0) {
+        if (trackedTokens[tokenAddress] == address(0)) {
             // not tracking limits on this token, no limit
             return true;
         }
@@ -532,11 +580,11 @@ contract EtherVault {
             decimals = IERC20(tokenAddress).decimals();
         }
 
-        uint dollarValue = IPriceFeeder(consumerAddress).getConversionRate(tokenAddress, _value) / (10**decimals);
+        uint dollarValue = getDollarValue(tokenAddress, _value) / (10**decimals);
         if (spentToday + dollarValue <= dailyLimit) {
             return true;
-        }
-            return false;
+        } else {
+            return false;}
     }
 
 
