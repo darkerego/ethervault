@@ -21,7 +21,13 @@
 - Test all of the function in EthervaultL2
 
 ### Changelog
+April 3, 2023
+
+- Fixed the assembly call function. Now works for token transfers. NOTE: still need to test a few things, so if you deploy this, 
+  make sure you test everything.
+
 March 26/2023
+
 
 - Switched execute(r,v,d) from inline assembly to regular solidity because token transfers were failing, I am 
  not entirely sure why, but it must be something with the YUL call syntax because it works fine with Solidity's call(). 
