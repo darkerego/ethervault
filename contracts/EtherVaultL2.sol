@@ -62,11 +62,11 @@ contract EtherVaultL2 {
     /*
       @dev: Error Messages
     */
-    string constant dupSigErr = "Already signed.";
-    string constant txFailErr = "Call failed";
-    string constant txNotFoundErr = "Transaction not found";
-    string constant insFundErr = "Insufficient funds";
-    string constant authErr = 'Only signer can call!';
+    string constant DUP_SIG_ERR = "Already signed.";
+    string constant TX_FAIL_ERR = "Call failed";
+    string constant TX_NOT_FOUND_ERR = "Transaction not found";
+    string constant INS_FUNDS_ERR = "Insufficient funds";
+    string constant AUTH_ERR = "!Auth/Nonce/Mutex";
 
     /*
       @dev: Mapping Indexes
@@ -92,7 +92,7 @@ contract EtherVaultL2 {
           and ensures system state is not locked.
         */
 
-        require(isSigner[s] == 1 && _nonce == execNonce +1 && mutex == 0, "!Auth/Nonce/Mutex");
+        require(isSigner[s] == 1 && _nonce == execNonce +1 && mutex == 0, AUTH_ERR);
         execNonce += 1;
     }
 
@@ -217,39 +217,17 @@ contract EtherVaultL2 {
         uint256 _value,
         bytes memory data
         ) private {
-       /*
-         @dev: Gas efficient arbitrary call in assembly. Currently not working for
-         token transfers, so I switched it back to the solidity version.
-       */
-        /*assembly {
-            let success_ := call(gas(), r, v, add(d, 0x00), mload(d), 0x20, 0x0)
+       assembly {
+            let success_ := call(gas(), recipient, _value, add(data, 0x20), mload(data), 0x0, 0x0)
             let success := eq(success_, 0x1)
-            if iszero(success) {
-                revert(mload(d), add(d, 0x20))
-            }
-        }*/
-        assembly {
-            let ptr := mload(0x40)
-            // solium-disable-line
-
-            let success := call(
-                gas(),
-                recipient,
-                _value,
-                add(data, 0x00),
-                mload(data),
-                0x0,
-                0x0
-            )
             let retSz := returndatasize()
-            returndatacopy(ptr, 0, retSz)
-            if iszero(success) {
-                revert(mload(data), add(data, 0x40))
-        }
 
-        //(bool success,) = recipient.call{value: _value}(data);
-        //require(success, txFailErr);
-    }}
+            if iszero(success) {
+                revert(data, retSz)}
+            }
+
+
+        }
 
     function signProposal(
         /*
@@ -306,7 +284,7 @@ contract EtherVaultL2 {
           @dev: Approve a pending proposal and execute it if all required
            signers are accounted for.
         */
-        require(pendingProposals[_proposalId].approvals[msg.sender] == 0, dupSigErr);
+        require(pendingProposals[_proposalId].approvals[msg.sender] == 0, DUP_SIG_ERR);
         Proposal storage proposalObj = pendingProposals[_proposalId];
 
         // if all signers have signed
@@ -316,6 +294,11 @@ contract EtherVaultL2 {
 
                 dailyLimit = proposalObj.newLimit;
                 threshold = proposalObj.newThreshold;
+            }
+
+            // if pausing contract
+            if (proposalObj.paused > 0) {
+                paused = proposalObj.paused;
             }
             // if updating signers
             if (proposalObj.modifiedSigner != address(0)) {
@@ -354,7 +337,7 @@ contract EtherVaultL2 {
         uint32 _nonce
         ) external protected(_nonce) {
         require(pendingTxs[txid].proposer == msg.sender, "!proposer");
-        require(pendingTxs[txid].dest != address(0), txNotFoundErr);
+        require(pendingTxs[txid].dest != address(0), TX_NOT_FOUND_ERR);
         delete pendingTxs[txid];
     }
 
@@ -370,8 +353,8 @@ contract EtherVaultL2 {
         uint32 _nonce
         ) external protected(_nonce) checkPaused {
         Transaction storage _tx = pendingTxs[txid];
-        require(pendingTxs[txid].approvals[owner] == 0, dupSigErr);
-        require(_tx.dest != address(0), txNotFoundErr);
+        require(pendingTxs[txid].approvals[msg.sender] == 0, DUP_SIG_ERR);
+        require(_tx.dest != address(0), TX_NOT_FOUND_ERR);
         if(_tx.numSigners + 1 >= threshold){
             execute(_tx.dest, _tx.value, _tx.data);
             // should not have any re-entrency vulnerability because of mutex checks
@@ -407,10 +390,10 @@ contract EtherVaultL2 {
                 self :=selfbalance()
             }
             // make sure we have equity for this request
-            require(self >= amount, insFundErr);
+            require(self >= amount, INS_FUNDS_ERR);
 
         } else {
-            require(IERC20(tokenAddress).balanceOf(address(this)) >= amount, insFundErr);
+            require(IERC20(tokenAddress).balanceOf(address(this)) >= amount, INS_FUNDS_ERR);
         }
 
     }
