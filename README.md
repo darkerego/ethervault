@@ -85,6 +85,7 @@ March 10, 2023
 ### EtherVault Features
 
 <p>
+
 - Simple to use multi-signature secure smart contract wallet.
 - Designed to be gas efficient and reasonably inexpensive to deploy on Ethereum main net.
 - Configurable daily spending limit (only for Ethereum).
@@ -97,6 +98,7 @@ March 10, 2023
 ### EtherVaultL2 Features
 
 <p>
+
 - Simple to use multi-signature secure smart contract wallet with more features than EtherVault.
 - Written without gas/deployment costs constraints.
 - Configurable daily spending limit for both Ethereum and ERC20 tokens.
