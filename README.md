@@ -1,25 +1,39 @@
 # EtherVault (Beta)
 
-
-### New Version with More Features
-
-- Added a new version called EthervaultV2, which is intended for use on layer-2 networks. I wrote version 2 without 
- worrying about being constrained by deployment and gas costs. 
-- In version 2, the dailyLimit parameter is the amount of DOLLARS worth of assets that signers are allowed to withdraw 
-  per day. <s>This version requires also deploying a separate contract that retreives price data from a chainlink oracle.</s>
-  - Update: I modified EthervaultL2 so that the price oracle stuff is now in the same contract.
-- TODO: write documentation on price consumer contract and version 2
+### About
+<p>
+Ethervault is a multi-signature smart contract designed for storing ethereum that enforces a spending limit. 
+It can also store ERC20 (and other) tokens as well. 
+</p>
 
 <p>
-<b>Note: </b> I have NOT tested version 2, and version 1 is also still pretty beta!
+There are two different versions, Ethervault and EthervaultL2. Ethervault was written to be gas efficient and cheap to 
+deploy above all else. EthervaultL2 is a more featured version of Ethervault which I wrote without paying much attention 
+to gas efficiency or bytecode size. It is intended to be used on Layer 2 networks, which typically have much lower 
+transaction fees. Ethervault (version 1) is intended to be used on main net, which generally has very high fees.
 </p>
+
 
 ### TODO 
 
 - Write automated tests for contract functions
 - Fuzzing with echidna
 - Test all of the function in EthervaultL2
+  - Withdraw works 
+  - SubmitRawTx works
+  # TODO: test proposal functions on EthervaultL2
 
+### Changelog 
+April 5, 2023
+
+- Finally, got around to testing out the new version. Withdrawal functionality is good. Had to fix one thing where I forgot 
+  to increment spentToday value.
+- Further optimized the contract.
+  - rewrote withdraw() logic
+  - combined the signTx and signProposal into one function
+- Added the ability to pause the contract via a proposal. When the contract is paused, proposal functionality still works, 
+  while withdrawals are disabled. To pause or unpause the contract, a proposal must be submitted and approved.
+ 
 ### Changelog
 April 3, 2023
 
@@ -66,22 +80,38 @@ March 10, 2023
   - Execute transaction over limit is working 
   - Execute transaction under limit is working
 
-### About
-<p>
-Ethervault is a multisignature smart contract designed for storing ethereum that enforces a spending limit. 
-It can also store ERC20 (and other) tokens as well, although currently the spending limits will only apply to 
-Ethereum. Note: I have not tested withdrawing tokens yet, so you should test before storing tokens in this contract.
-</p>
 
-### Features
+
+### EtherVault Features
 
 <p>
-
 - Simple to use multi-signature secure smart contract wallet.
 - Designed to be gas efficient and reasonably inexpensive to deploy on Ethereum main net.
-- Configurable daily spending limit.
-- Larger withdrawals require approval from additional signers. 
+- Configurable daily spending limit (only for Ethereum).
+- Larger eth withdrawals require approval from additional signers. 
 - Signer accounts, required signer count for withdrawal, and daily spending limit are configured at deployment.
+- Deployment costs: With optimization at 100 runs, consumes 1,339,326 gas. With a gas price of ~20gw, that's only
+    0.028 eth, or at the time of this writing, $41.42 on Ethereum mainnet.
+</p>
+
+### EtherVaultL2 Features
+
+<p>
+- Simple to use multi-signature secure smart contract wallet with more features than EtherVault.
+- Written without gas/deployment costs constraints.
+- Configurable daily spending limit for both Ethereum and ERC20 tokens.
+    - In order to limit token withdrawals, you need to first run trackToken(token_address, oracle_address), 
+    supplying the token's address and the TOKEN/USD chainlink price oracle address.
+    - Ethereum/USD oracle is configured at deployment.
+- Withdrawals can be initiated by either calling withdraw(), or calling submitRawTx().
+    - The withdraw() function will automatically encoded the calldata and 
+    does not take a `data` parameter.
+    - The submitRawTx() function takes parameters `recipient`, `_value`, and `data`, allowing 
+     users a greater deal of flexibility. For obvious reasons, raw transactions always require 
+     approval from additional signers. Note that this is NOT the case with EtherVault (version 1) 
+     because version 1 only enforces spending limits for Ethereum.
+- Deployment cost: With optimization at 100 runs: consumes 1,978,289 gas. At a price around 20 gw, that is about 
+    0.034 eth, which right now is about $64 on Ethereum mainnet.
 </p>
 
 ### Multi-Signature Logic Flow
@@ -90,6 +120,19 @@ Ethereum. Note: I have not tested withdrawing tokens yet, so you should test bef
 When the contract is deployed, 3 parameters are given: a list of authorized signers, a threshold, and a daily spending limit. 
 The threshold  is how many signers must approve a transaction that exceeds the daily spending limit. When a transaction 
 requires approval, the amount does not count towards the daily spending limit.
+</p>
+
+<p>
+<b>Important: </b> The dailyLimit value repesents a raw ethereum wei value with EtherVault. However, with EtherVaultL2, 
+it represents a dollar value. Examples:
+</p>
+
+<p>
+Ethervault: To allow withdrawing up to 0.025 ethereum per day, you'd use a value of `25000000000000000`. 
+</p>
+
+<p>
+EtherVaultL2: To allow withdrawing up to $50 per day of Ethereum and/or tokens: you'd use a value of `50`. 
 </p>
 
 <b>
@@ -125,7 +168,7 @@ the change. This process works just like executing a transaction, and the propos
 the last required signer approves.
 </p>
 
-### Error Codes
+### Error Codes (Ethervault version 1)
 
 <p>
 In order to have the lowest possible bytecode size and thus deployment costs, many gas optimizations were implemented, 

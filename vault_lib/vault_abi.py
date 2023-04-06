@@ -15,23 +15,17 @@ vault_abi = json.loads("""[
 			},
 			{
 				"internalType": "uint128",
-				"name": "_dailyLimit",
+				"name": "_dailyDollarLimit",
 				"type": "uint128"
+			},
+			{
+				"internalType": "address",
+				"name": "ethPriceAggregator",
+				"type": "address"
 			}
 		],
 		"stateMutability": "nonpayable",
 		"type": "constructor"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes2",
-				"name": "",
-				"type": "bytes2"
-			}
-		],
-		"name": "FailAndRevert",
-		"type": "error"
 	},
 	{
 		"inputs": [
@@ -119,6 +113,30 @@ vault_abi = json.loads("""[
 		"type": "function"
 	},
 	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "dest",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			}
+		],
+		"name": "encodeTransfer",
+		"outputs": [
+			{
+				"internalType": "bytes",
+				"name": "",
+				"type": "bytes"
+			}
+		],
+		"stateMutability": "pure",
+		"type": "function"
+	},
+	{
 		"inputs": [],
 		"name": "execNonce",
 		"outputs": [
@@ -126,6 +144,30 @@ vault_abi = json.loads("""[
 				"internalType": "uint32",
 				"name": "",
 				"type": "uint32"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "tokenAddress",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amount",
+				"type": "uint256"
+			}
+		],
+		"name": "getDollarValue",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
 			}
 		],
 		"stateMutability": "view",
@@ -166,6 +208,19 @@ vault_abi = json.loads("""[
 		"type": "function"
 	},
 	{
+		"inputs": [],
+		"name": "paused",
+		"outputs": [
+			{
+				"internalType": "uint8",
+				"name": "",
+				"type": "uint8"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
 		"inputs": [
 			{
 				"internalType": "uint16",
@@ -184,6 +239,11 @@ vault_abi = json.loads("""[
 				"internalType": "address",
 				"name": "modifiedSigner",
 				"type": "address"
+			},
+			{
+				"internalType": "uint8",
+				"name": "paused",
+				"type": "uint8"
 			},
 			{
 				"internalType": "uint8",
@@ -219,6 +279,11 @@ vault_abi = json.loads("""[
 		],
 		"name": "pendingTxs",
 		"outputs": [
+			{
+				"internalType": "address",
+				"name": "proposer",
+				"type": "address"
+			},
 			{
 				"internalType": "address",
 				"name": "dest",
@@ -305,7 +370,7 @@ vault_abi = json.loads("""[
 				"type": "uint32"
 			}
 		],
-		"name": "submitTx",
+		"name": "submitRawTx",
 		"outputs": [
 			{
 				"internalType": "uint32",
@@ -313,7 +378,7 @@ vault_abi = json.loads("""[
 				"type": "uint32"
 			}
 		],
-		"stateMutability": "payable",
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{
@@ -327,6 +392,95 @@ vault_abi = json.loads("""[
 			}
 		],
 		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "tokenAddress",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "feedAddress",
+				"type": "address"
+			},
+			{
+				"internalType": "uint32",
+				"name": "_nonce",
+				"type": "uint32"
+			}
+		],
+		"name": "trackToken",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "trackedTokens",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "txCount",
+		"outputs": [
+			{
+				"internalType": "uint32",
+				"name": "",
+				"type": "uint32"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "tokenAddress",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "destination",
+				"type": "address"
+			},
+			{
+				"internalType": "uint128",
+				"name": "amount",
+				"type": "uint128"
+			},
+			{
+				"internalType": "uint32",
+				"name": "_nonce",
+				"type": "uint32"
+			}
+		],
+		"name": "withdraw",
+		"outputs": [
+			{
+				"internalType": "uint32",
+				"name": "",
+				"type": "uint32"
+			}
+		],
+		"stateMutability": "nonpayable",
 		"type": "function"
 	},
 	{

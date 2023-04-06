@@ -9,15 +9,15 @@ pragma solidity ^0.8.16;
  888     888   888  888 Y888    , 888        Y8/     C888  888 888  888 888  888
  888___  "88_/ 888  888  "88___/  888         Y       "88_-888 "88_-888 888  "88_/
 
-Ethervault Multisignature Wallet - Layer-2 Version: Written without constraints of
-reducting deploy costs, unlike version 1 which strives to limit deployment and gas
+Ethervault Multi-signature Wallet - Layer-2 Version: Written without constraints of
+reducing deploy costs, unlike version 1 which strives to limit deployment and gas
 costs above all else. Supports price feeds, daily withdrawal limit is a dollar
 value.  ~ Darkerego, Copyright 2023
 */
 
 
 
-//import "interfaces/IPriceFeeder.sol";
+
 import "interfaces/IERC20.sol";
 import "interfaces/IAggregatorV3.sol";
 
@@ -185,27 +185,6 @@ contract EtherVaultL2 {
             trackedTokens[tokenAddress] = feedAddress;
     }
 
-    /*function alreadySigned(
-
-        uint32 txid,
-        address owner
-    ) private view returns(bool){
-        if (pendingTxs[txid].approvals[owner] == 0){
-           return false;
-       }
-       return true;
-    }*/
-    /*
-    function alreadySignedProposal(
-
-          //@dev: revert if caller already signed
-
-        address signer,
-        uint16 _proposalId
-        ) private view {
-        require(pendingProposals[_proposalId].approvals[signer] == 0, dupSigErr);
-    }
-    */
 
     function execute(
         /*
@@ -229,18 +208,6 @@ contract EtherVaultL2 {
 
         }
 
-    function signProposal(
-        /*
-          @dev: Function marks signer (the caller) as having confirmed the given proposal id.
-        */
-        address caller,
-        uint16 _proposalId
-        ) private {
-
-        pendingProposals[_proposalId].approvals[caller] = 1;
-        pendingProposals[_proposalId].numSigners += 1;
-    }
-
     function newProposal(
         /*
           @dev: Create a new proposal to change the daily limits, the signer threshold, or to
@@ -257,7 +224,8 @@ contract EtherVaultL2 {
         (prop.modifiedSigner, prop.newLimit, prop.initiated,
         prop.newThreshold, prop.proposer) = (_signer, _limit,
         uint32(block.timestamp),  _threshold, msg.sender);
-        signProposal(msg.sender, proposalId);
+        //signProposal(msg.sender, proposalId);
+        sign(0, proposalId, msg.sender);
         return proposalId;
     }
 
@@ -286,21 +254,16 @@ contract EtherVaultL2 {
         */
         require(pendingProposals[_proposalId].approvals[msg.sender] == 0, DUP_SIG_ERR);
         Proposal storage proposalObj = pendingProposals[_proposalId];
-
         // if all signers have signed
         if(proposalObj.numSigners +1 == signerCount)  {
              // if limit/threshold are being updated
             if (proposalObj.newLimit > 0||proposalObj.newThreshold >0){
-
                 dailyLimit = proposalObj.newLimit;
                 threshold = proposalObj.newThreshold;
-            }
-
-            // if pausing contract
+            } // if pausing contract
             if (proposalObj.paused > 0) {
                 paused = proposalObj.paused;
-            }
-            // if updating signers
+            } // if updating signers
             if (proposalObj.modifiedSigner != address(0)) {
                 if (isSigner[proposalObj.modifiedSigner] == 1) {
                     /*
@@ -310,7 +273,6 @@ contract EtherVaultL2 {
                     */
                     isSigner[proposalObj.modifiedSigner] = 0;
                     signerCount-=1;
-
                 } else {
                     /*
                     @dev: Signer does not exist yet, so this must be signer addition.
@@ -323,7 +285,8 @@ contract EtherVaultL2 {
             delete pendingProposals[_proposalId];
         } else {
             // More signatures needed, so just sign.
-            signProposal(msg.sender, _proposalId);
+            //signProposal(msg.sender, _proposalId);
+            sign(0, _proposalId, msg.sender);
         }
     }
 
@@ -360,20 +323,22 @@ contract EtherVaultL2 {
             // should not have any re-entrency vulnerability because of mutex checks
             delete pendingTxs[txid];
         } else {
-            signTx(txid, msg.sender);
+            //signTx(txid, msg.sender);
+            sign(txid, 0, msg.sender);
         }
     }
 
-    function signTx(
-         /*
-          @dev: register a transaction confirmation.
+    function sign(uint32 txid, uint16 _proposalId, address signer) private {
+        /*
+          @dev: Sign a pending proposal or transaction.
         */
-        uint32 txid,
-        address signer
-        ) private {
-
-        pendingTxs[txid].approvals[signer] = 1;
-        pendingTxs[txid].numSigners += 1;
+        if (txid > 0) {
+            pendingTxs[txid].approvals[signer] = 1;
+            pendingTxs[txid].numSigners += 1;
+        } else {
+            pendingProposals[_proposalId].approvals[signer] = 1;
+            pendingProposals[_proposalId].numSigners += 1;
+        }
     }
 
     function checkBalance(
@@ -395,7 +360,6 @@ contract EtherVaultL2 {
         } else {
             require(IERC20(tokenAddress).balanceOf(address(this)) >= amount, INS_FUNDS_ERR);
         }
-
     }
 
     function encodeTransfer(
@@ -440,27 +404,21 @@ contract EtherVaultL2 {
         */
     ) external protected(_nonce) checkPaused returns (uint32){
         checkBalance(tokenAddress, amount);
-        uint32 txid = 0;
-        if (tokenAddress == address(0)) {
-            // eth transfer under limit, execute
-            if (underLimit(address(0), amount)) {
+        if (underLimit(tokenAddress, amount)) {
+            spentToday += uint128(getDollarValue(tokenAddress, amount));
+            if (tokenAddress == address(0)) {
                 execute(destination, amount, "");
-
             } else {
-                // add transaction to pending txs
-                txid = submitTx(msg.sender, destination, amount, "");
-            }
-
-        } else {
-            // token withdrawal
-            if (underLimit(tokenAddress, amount)) {
                 execute(tokenAddress, 0, encodeTransfer(destination, amount));
-
+            }
+            return 0;
+        } else {
+            if (tokenAddress == address(0)) {
+                return submitTx(msg.sender, destination, amount, "");
             } else {
-                txid = submitTx(msg.sender, tokenAddress, 0, encodeTransfer(destination, amount));
+                return submitTx(msg.sender, tokenAddress, 0, encodeTransfer(destination, amount));
             }
         }
-        return txid;
     }
 
     function submitTx(
@@ -477,7 +435,8 @@ contract EtherVaultL2 {
         // requires approval from signatories -- not factored into daily allowance
         Transaction storage txObject = pendingTxs[txCount];
         (txObject.proposer, txObject.dest, txObject.value, txObject.data) = (proposer, recipient, value, data);
-        signTx(txCount, proposer);
+        //signTx(txCount, proposer);
+        sign(txCount, 0, proposer);
         return txCount;
     }
 
@@ -499,8 +458,15 @@ contract EtherVaultL2 {
         checkBalance(address(0), value);
         return submitTx(msg.sender, recipient, value, data);
 
+    }
 
-
+    function getTokenDecimals(address tokenAddress) private view returns(uint8) {
+        //uint decimals;
+        if (tokenAddress == address(0)) {
+            return 18;
+        } else {
+            return IERC20(tokenAddress).decimals();
+        }
     }
 
 
@@ -512,12 +478,7 @@ contract EtherVaultL2 {
         view
         returns (uint256)
     {
-        uint decimals;
-        if (tokenAddress == address(0)) {
-            decimals = 18;
-        } else {
-            decimals = IERC20(tokenAddress).decimals();
-        }
+        uint decimals = getTokenDecimals(tokenAddress);
 
         (, int256 answer, , , ) = AggregatorV3Interface(trackedTokens[tokenAddress]).latestRoundData();
         uint price;
@@ -528,7 +489,6 @@ contract EtherVaultL2 {
             price = (uint(answer) * (decimals - 8)**10);
         }
         else {
-
             price = uint(answer) / 10**(8 - decimals);
         }
 
@@ -549,21 +509,14 @@ contract EtherVaultL2 {
         */
         uint32 t = uint32(block.timestamp / 1 days);
         if (t > lastDay) {
-            spentToday = 0;
-            lastDay = t;
+            (spentToday, lastDay) = (0,t);
+
         }
         if (trackedTokens[tokenAddress] == address(0)) {
             // not tracking limits on this token, no limit
             return true;
         }
-        uint decimals;
-        if (tokenAddress == address(0)) {
-            decimals = 18;
-        } else {
-            decimals = IERC20(tokenAddress).decimals();
-        }
-
-        uint dollarValue = getDollarValue(tokenAddress, _value) / (10**decimals);
+        uint dollarValue = getDollarValue(tokenAddress, _value) / (10**getTokenDecimals(tokenAddress));
         if (spentToday + dollarValue <= dailyLimit) {
             return true;
         } else {

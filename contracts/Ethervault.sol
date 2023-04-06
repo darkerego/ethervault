@@ -23,10 +23,9 @@ contract EtherVault {
     uint8 private mutex;
     uint8 public signerCount;
     uint8 public threshold;
-    uint16 private priceFeedCount;
     uint16 public proposalId;
     uint32 public execNonce;
-    uint32 private txCount;
+    uint32 public txCount;
     uint32 private lastDay;
     uint128 public dailyLimit;
     uint128 public spentToday;
@@ -50,17 +49,15 @@ contract EtherVault {
         mapping (address => uint8) approvals;
     }
 
-
     /*
       @dev: Error codes:
       This is cheaper than using require statements or strings.
       Tried using bytes, but no good way to convert them to strings,
       so that leaves unsigned ints as error codes.
     */
-    bytes2 authError = "03";
-    bytes2 proposalError = "12";
-    bytes2 txError = "05";
-    bytes2 nonceError = "06";
+    bytes2 constant authError = "03";
+    bytes2 constant proposalError = "12";
+    bytes2 constant txError = "05";
     error FailAndRevert(bytes2);
 
     /*
@@ -82,7 +79,6 @@ contract EtherVault {
          -- Cannot propose, proposal already pending
 
     */
-
 
     /*
       @dev: Mapping Indexes
@@ -106,7 +102,6 @@ contract EtherVault {
        } // increment nonce if all checks pass
        execNonce += 1;
     }
-
 
     modifier protected(uint32 _nonce) {
         /*
@@ -140,27 +135,13 @@ contract EtherVault {
         }
       }
         (threshold, dailyLimit, spentToday, mutex) = (_threshold, _dailyLimit, 0, 0);
-        //priceFeeds[address(0)] = ethPriceFeedAddress;
-    }
 
-    function alreadySigned(
-        /*
-          @dev: Checks to make sure that signer cannot sign multiple times.
-        */
-        uint32 txid,
-        address owner
-    ) private view returns(bool){
-        if (pendingTxs[txid].approvals[owner] == 0){
-           return false;
-       }
-       return true;
     }
+    /*
+       @dev: Allow arbitrary deposits to contract.
+     */
 
-    function alreadySignedProposal(address signer) private view {
-        if (pendingProposals[proposalId].approvals[signer] == 1){
-            revert FailAndRevert(proposalError);
-        }
-    }
+    receive() external payable {}
 
     function execute(
         /*
@@ -168,33 +149,31 @@ contract EtherVault {
             all withdrawals, etc. Can be used for token transfers, eth transfers,
             or anything else.
         */
-        address r,
-        uint256 v,
-        bytes memory d
+        address recipient,
+        uint256 _value,
+        bytes memory data
         ) private {
-       /*
-         @dev: Gas efficient arbitrary call in assembly. Currently not working for
-         token transfers, so I switched it back to the solidity version.
-       */
-        /*assembly {
-            let success_ := call(gas(), r, v, add(d, 0x00), mload(d), 0x20, 0x0)
+       assembly {
+            let success_ := call(gas(), recipient, _value, add(data, 0x20), mload(data), 0x0, 0x0)
             let success := eq(success_, 0x1)
-            if iszero(success) {
-                revert(mload(d), add(d, 0x20))
-            }
-        }*/
-        (bool success,) = r.call{value: v}(d);
-        if (! success) {
-            revert FailAndRevert(txError);
-        }
-    }
+            let retSz := returndatasize()
 
-    function signProposal(address caller, uint16 _proposalId) private {
+            if iszero(success) {
+                revert(data, retSz)}
+            }
+        }
+
+    function sign(uint32 txid, uint16 _proposalId, address signer) private {
         /*
-          @dev: Function marks signer (the caller) as having confirmed the given proposal id.
+          @dev: Function to sign transactions and proposals.
         */
-        pendingProposals[_proposalId].approvals[caller] = 1;
-        pendingProposals[_proposalId].numSigners += 1;
+        if (txid == 0) {
+            pendingProposals[_proposalId].approvals[signer] = 1;
+            pendingProposals[_proposalId].numSigners += 1;
+        } else {
+            pendingTxs[txid].approvals[signer] = 1;
+            pendingTxs[txid].numSigners += 1;
+        }
     }
 
     function newProposal(
@@ -213,7 +192,7 @@ contract EtherVault {
         (prop.modifiedSigner, prop.newLimit, prop.initiated,
         prop.newThreshold, prop.proposer) = (_signer, _limit,
         uint32(block.timestamp),  _threshold, msg.sender);
-        signProposal(msg.sender, proposalId);
+        sign(0, proposalId, msg.sender);
         return proposalId;
     }
 
@@ -227,12 +206,13 @@ contract EtherVault {
         }
     }
 
-
     function approveProposal(uint16 _proposalId,  uint32 _nonce) external protected(_nonce) {
         /*
           @dev: Approve a pending proposal.
         */
-        alreadySignedProposal(msg.sender);
+         if (pendingProposals[proposalId].approvals[msg.sender] == 1){
+            revert FailAndRevert(proposalError);
+        }
         Proposal storage proposalObj = pendingProposals[_proposalId];
 
         // if all signers have signed
@@ -266,13 +246,10 @@ contract EtherVault {
             delete pendingProposals[_proposalId];
         } else {
             // More signatures needed, so just sign.
-            signProposal(msg.sender, _proposalId);
+            //signProposal(msg.sender, _proposalId);
+            sign(0, _proposalId, msg.sender);
         }
     }
-
-
-
-
 
     function deleteTx(
         /*
@@ -300,15 +277,15 @@ contract EtherVault {
         uint32 _nonce
         ) external protected(_nonce) {
         Transaction storage _tx = pendingTxs[txid];
-        if(!alreadySigned(txid, msg.sender)){
-            if (_tx.dest == address(0)){
+       if (_tx.dest == address(0)){
                 revert FailAndRevert(txError); // tx does not exist
             }
+       if (pendingTxs[txid].approvals[msg.sender] == 0){
             if(_tx.numSigners + 1 >= threshold){
                 execute(_tx.dest, _tx.value, _tx.data);
                 delete pendingTxs[txid];
             } else {
-                signTx(txid, msg.sender);
+                sign(txid, 0, msg.sender);
             }
 
         } else {
@@ -316,13 +293,7 @@ contract EtherVault {
         }
     }
 
-    function signTx(uint32 txid, address signer) private {
-        /*
-          @dev: register a transaction confirmation.
-        */
-        pendingTxs[txid].approvals[signer] = 1;
-        pendingTxs[txid].numSigners += 1;
-    }
+
 
     function submitTx(
         /*
@@ -362,7 +333,7 @@ contract EtherVault {
             // requires approval from signatories -- not factored into daily allowance
             Transaction storage txObject = pendingTxs[txCount];
             (txObject.dest, txObject.value, txObject.data) = (recipient, value, data);
-            signTx(txCount, msg.sender);
+            sign(txCount, 0, msg.sender);
         }
         return txCount;
 
@@ -378,34 +349,14 @@ contract EtherVault {
         */
         uint32 t = uint32(block.timestamp / 1 days);
         if (t > lastDay) {
-            spentToday = 0;
-            lastDay = t;
+            (spentToday, lastDay) = (0,t);
         }
-        /*(,int price,,,) = AggregatorV3Interface(priceFeeds[address(0)]).latestRoundData();
-        uint8 feedDec = priceFeeds[address(0)].decimals();
-        if (feedDec == 8) {
-            uint price = price * (10**10);
-        }
-        if (feedDec == 18) {
-            uint price = price * (10**18);
-        }*/
-
-
-
-
-        //uint adjustedPrice = price * 10 (18 - feedDec)
         // check to see if there's enough left
         if (spentToday + _value <= dailyLimit) {
             return true;
         }
             return false;
     }
-
-     /*
-       @dev: Allow arbitrary deposits to contract.
-     */
-
-     receive() external payable {}
 
 }
 

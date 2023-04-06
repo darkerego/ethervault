@@ -138,6 +138,11 @@ class VaultCli:
         if txid:
             print(f'[+] TXID: {txid}')
 
+    def add_tracked_token(self, token_address: (str, ChecksumAddress), price_feed_address: (str, ChecksumAddress)):
+        tx = self.build_contract_interaction_tx('trackToken', to_checksum_address(token_address),
+                                                to_checksum_address(price_feed_address))
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
+
     def propose_withdrawal(self, destination: ChecksumAddress, quantity: float, data: bytes = bytes('0x'.encode())):
         raw_qty = int(self.sw3.w3.toWei(quantity, 'ether'))
 
@@ -210,6 +215,10 @@ def vault_cli():
     subparsers = args.add_subparsers(dest='command')
     deposit = subparsers.add_parser('deposit', help='Deposit ether')
     deposit.add_argument('-q', '--quantity', type=float, help='Ether amount')
+    track = subparsers.add_parser('track_token')
+    track.add_argument('-ta', '--token-address', dest='token_address', type=str, default=None, help='The ERC20 token address.')
+    track.add_argument('-fa', '--feed-address', dest='feed_address', type=str, default=None,
+                       help='Chainlink oracle address.')
     withdraw = subparsers.add_parser('withdraw', help='Propose a withdrawal.')
     withdraw.add_argument('-r', '--recipient', type=str, help='Ether address of recipient.')
     withdraw.add_argument('-q', '--quantity', type=float, help='Ether amount.')
@@ -263,6 +272,13 @@ def vault_cli():
     if args.command == 'deposit':
         print(f'[+] Will deposit {args.quantity} to {contract_address}')
         vault.deposit_ether(qty=args.quantity)
+
+    if args.command == 'track_token':
+        print('[+] NOTICE: Only EtherVaultL2 has this function.')
+        print('[+] Configuring new tracked token with parameters: ')
+        print('[+] Token Address:', args.token_address)
+        print('[+] Oracle Address: ', args.feed_address)
+        helpers.parse_tx_ret_val(vault.add_tracked_token(args.token_address, args.feed_address))
 
     if args.command == 'withdraw':
         print(f'[+] Will propose new withdrawal with parameters:')
