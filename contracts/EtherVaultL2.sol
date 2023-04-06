@@ -217,14 +217,14 @@ contract EtherVaultL2 {
         address _signer,
         uint128 _limit,
         uint8 _threshold,
+        uint8 _paused,
         uint32 _nonce
     ) external protected(_nonce) returns(uint16){
         proposalId += 1;
         Proposal storage prop = pendingProposals[proposalId];
         (prop.modifiedSigner, prop.newLimit, prop.initiated,
-        prop.newThreshold, prop.proposer) = (_signer, _limit,
-        uint32(block.timestamp),  _threshold, msg.sender);
-        //signProposal(msg.sender, proposalId);
+        prop.newThreshold, prop.proposer, prop.paused) = (_signer, _limit,
+        uint32(block.timestamp),  _threshold, _paused, msg.sender);
         sign(0, proposalId, msg.sender);
         return proposalId;
     }
@@ -236,13 +236,11 @@ contract EtherVaultL2 {
         uint16 _proposalId,
         uint32 _nonce
         ) external protected(_nonce) {
-
         Proposal storage proposalObj = pendingProposals[_proposalId];
         if (proposalObj.proposer == msg.sender){
             delete pendingProposals[_proposalId];
         }
     }
-
 
     function approveProposal(
         uint16 _proposalId,
@@ -323,7 +321,6 @@ contract EtherVaultL2 {
             // should not have any re-entrency vulnerability because of mutex checks
             delete pendingTxs[txid];
         } else {
-            //signTx(txid, msg.sender);
             sign(txid, 0, msg.sender);
         }
     }
@@ -356,7 +353,6 @@ contract EtherVaultL2 {
             }
             // make sure we have equity for this request
             require(self >= amount, INS_FUNDS_ERR);
-
         } else {
             require(IERC20(tokenAddress).balanceOf(address(this)) >= amount, INS_FUNDS_ERR);
         }
@@ -391,8 +387,6 @@ contract EtherVaultL2 {
              yes) The transaction will be executed here and value added to `spentToday`.
              no)  The transaction requires the approval of `threshold` signatories,
                   so it will be queued pending approval.
-
-
         */
 
         address tokenAddress, // address(0) to specify Ethereum
@@ -430,12 +424,10 @@ contract EtherVaultL2 {
         uint128 value,
         bytes memory data
         ) private returns(uint32) {
-
         txCount += 1;
         // requires approval from signatories -- not factored into daily allowance
         Transaction storage txObject = pendingTxs[txCount];
         (txObject.proposer, txObject.dest, txObject.value, txObject.data) = (proposer, recipient, value, data);
-        //signTx(txCount, proposer);
         sign(txCount, 0, proposer);
         return txCount;
     }
@@ -453,8 +445,7 @@ contract EtherVaultL2 {
         uint32 _nonce
 
         ) external protected(_nonce) returns(uint32) {
-
-        // gas effecient balance call
+        // gas efficient balance call
         checkBalance(address(0), value);
         return submitTx(msg.sender, recipient, value, data);
 
@@ -469,7 +460,6 @@ contract EtherVaultL2 {
         }
     }
 
-
     function getDollarValue(address tokenAddress, uint256 amount)
       /*
         @dev Convert arbitrary amount of token into a dollar amount.
@@ -479,7 +469,6 @@ contract EtherVaultL2 {
         returns (uint256)
     {
         uint decimals = getTokenDecimals(tokenAddress);
-
         (, int256 answer, , , ) = AggregatorV3Interface(trackedTokens[tokenAddress]).latestRoundData();
         uint price;
         if (decimals == 8) {
@@ -491,7 +480,6 @@ contract EtherVaultL2 {
         else {
             price = uint(answer) / 10**(8 - decimals);
         }
-
         return (price * amount) / (10** decimals);
         // the actual ETH/USD conversation rate, after adjusting the extra 0s.
     }
@@ -510,7 +498,6 @@ contract EtherVaultL2 {
         uint32 t = uint32(block.timestamp / 1 days);
         if (t > lastDay) {
             (spentToday, lastDay) = (0,t);
-
         }
         if (trackedTokens[tokenAddress] == address(0)) {
             // not tracking limits on this token, no limit
