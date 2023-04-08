@@ -1,10 +1,10 @@
 {
-  "account": "deployer2",
+  "account": "deployer",
   "signers": [
-    "0xF738Be6972c384211Da31fCAb979F1F81CB1397E",
-    "0x7612E93FF157d1973D0f95Be9E4f0bdF93BAf0DE",
-    "0x2aB5BA5611f4cc435755860d19B94e35B277C5AF",
-    "0x82B1b1718ef5b561E5e4b6Dcf9cAd3Af1dd11b9e"
+    "",
+    "",
+    "",
+    ""
   ],
   "threshold": 3,
   "daily_limit": 50000000000000000,
