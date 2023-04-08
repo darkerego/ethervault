@@ -24,6 +24,12 @@ transaction fees. Ethervault (version 1) is intended to be used on main net, whi
   # TODO: test proposal functions on EthervaultL2
 
 ### Changelog 
+April 7, 2023
+
+- Began thoroughly testing new changes. identified a bug with the daily dollar limit in 
+  approveTx calculating the `spentToday`. Fixed. 
+- Other minor bugfixs.
+
 April 5, 2023
 
 - Finally, got around to testing out the new version. Withdrawal functionality is good. Had to fix one thing where I forgot 

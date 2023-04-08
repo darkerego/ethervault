@@ -87,7 +87,7 @@ class VaultCli:
     @property
     def contract(self) -> Contract:
         if hasattr(self, 'contract_address'):
-            return self.w3.eth.contract(self.contract_address, abi=vault_abi.vault_abi)
+            return self.w3.eth.contract(self.contract_address, abi=vault_abi.ethervault_2_abi)
         raise exceptions.ContractNotConfigured('Please specify your contract address on '
                                                'this network in your wallet file.')
 
@@ -140,10 +140,10 @@ class VaultCli:
 
     def add_tracked_token(self, token_address: (str, ChecksumAddress), price_feed_address: (str, ChecksumAddress)):
         tx = self.build_contract_interaction_tx('trackToken', to_checksum_address(token_address),
-                                                to_checksum_address(price_feed_address))
+                                                to_checksum_address(price_feed_address), self.get_contract_nonce())
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
-    def propose_withdrawal(self, destination: ChecksumAddress, quantity: float, data: bytes = bytes('0x'.encode())):
+    def propose_withdrawal_raw(self, destination: ChecksumAddress, quantity: float, data: bytes = bytes('0x'.encode())):
         raw_qty = int(self.sw3.w3.toWei(quantity, 'ether'))
 
         assert (
@@ -151,10 +151,10 @@ class VaultCli:
         #tx = self.build_contract_interaction_tx('submitTx', args={'recipient': to_checksum_address(destination),
         #                                                          'value': int(raw_qty), 'data': data,
         #                                                          '_nonce': int(self.get_contract_nonce())})
-        tx = self.build_contract_interaction_tx('submitTx', to_checksum_address(destination), int(raw_qty), data, int(self.get_contract_nonce()))
+        tx = self.build_contract_interaction_tx('submitRawTx', to_checksum_address(destination), int(raw_qty), data, int(self.get_contract_nonce()))
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
-    def propose_token_withdrawal(self, destination: ChecksumAddress, token_address: ChecksumAddress, quantity: float):
+    def propose_token_withdrawal_via_raw(self, destination: ChecksumAddress, token_address: ChecksumAddress, quantity: float):
         token = self.w3.eth.contract(token_address, abi=vault_lib.vault_abi.EIP20_ABI)
         decimals = token.functions.decimals().call()
         raw_qty = int(quantity * (10**decimals))
@@ -163,8 +163,32 @@ class VaultCli:
         #tx = self.build_contract_interaction_tx('submitTx', args={'recipient': to_checksum_address(token_address),
         #                                                          'value': 0, 'data': data,
         #                                                          '_nonce': int(self.get_contract_nonce())})
-        tx = self.build_contract_interaction_tx('submitTx', to_checksum_address(token_address), 0, data, int(self.get_contract_nonce()))
+        tx = self.build_contract_interaction_tx('submitRawTx', to_checksum_address(token_address), 0, data, int(self.get_contract_nonce()))
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
+
+    def assert_version(self, _version: int = 2) -> bool:
+        try:
+            assert (self.get_property('version') == _version)
+        except AssertionError:
+            print('[!] Wrong version for function call.')
+            return False
+        return True
+
+    def withdraw_via_withdraw(self, token_address: (ChecksumAddress, None), destination: ChecksumAddress, amount: float):
+        self.assert_version(2)
+        if token_address is None:
+            raw_qty = int(amount * (10 ** 18))
+            token_address = '0x0000000000000000000000000000000000000000'
+        else:
+            token = self.w3.eth.contract(token_address, abi=vault_lib.vault_abi.EIP20_ABI)
+            decimals = token.functions.decimals().call()
+            raw_qty = int(amount * (10 ** decimals))
+        tx = self.build_contract_interaction_tx('withdraw', to_checksum_address(token_address), to_checksum_address(destination),
+                                                raw_qty, int(self.get_contract_nonce()))
+        return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
+
+
+
 
     def cancel_withdrawal(self, transaction_id: int) -> (hex, bool):
         nonce = self.get_contract_nonce()
@@ -178,11 +202,11 @@ class VaultCli:
         tx = self.build_contract_interaction_tx('approveTx', transaction_id, nonce)
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
-    def initiate_proposal(self, signer_address: ChecksumAddress, limit: float, threshold: int) -> (hex, bool):
+    def initiate_proposal(self, signer_address: ChecksumAddress, limit: float, threshold: int, paused: bool = False) -> (hex, bool):
         #tx = self.build_contract_interaction_tx('newProposal', {'_signer': signer_address, '_limit': limit,
         #                                                        '_threshold': threshold,
         #                                                        '_nonce': self.get_contract_nonce()})
-        tx = self.build_contract_interaction_tx('newProposal', signer_address, limit, threshold, self.get_contract_nonce())
+        tx = self.build_contract_interaction_tx('newProposal', signer_address, limit, threshold, paused, self.get_contract_nonce())
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
 
     def approve_proposal(self, proposal_id) -> (hex, bool):
@@ -196,6 +220,9 @@ class VaultCli:
         #                                                           '_nonce': self.get_contract_nonce()})
         tx = self.build_contract_interaction_tx('deleteProposal', proposal_id, self.get_contract_nonce())
         return self.sw3_wallet.broadcast_raw_tx(tx=tx, private=False)
+
+    def get_ethervault_version(self):
+        return self.get_property('version')
 
     def get_property(self, name, _id=None):
         contract = self.contract
@@ -219,6 +246,7 @@ def vault_cli():
     track.add_argument('-ta', '--token-address', dest='token_address', type=str, default=None, help='The ERC20 token address.')
     track.add_argument('-fa', '--feed-address', dest='feed_address', type=str, default=None,
                        help='Chainlink oracle address.')
+
     withdraw = subparsers.add_parser('withdraw', help='Propose a withdrawal.')
     withdraw.add_argument('-r', '--recipient', type=str, help='Ether address of recipient.')
     withdraw.add_argument('-q', '--quantity', type=float, help='Ether amount.')
@@ -237,6 +265,7 @@ def vault_cli():
     init_proposal.add_argument('-s', '--signer', type=str, default=None, help='Signer address to add or revoke.')
     init_proposal.add_argument('-t', '--threshold', type=int, default=0, help='Proposed new threshold.')
     init_proposal.add_argument('-l', '--limit', type=float, default=0, help='Proposed new daily spending limit.')
+    init_proposal.add_argument('-p', '--paused', type=bool, default=False, help='Propose to pause the contract.')
     approve = subparsers.add_parser('approve', help='Approve a pending proposal.')
     approve.add_argument('-i', '--id', type=int, help='The pending proposal ID.')
     revoke = subparsers.add_parser('revoke', help='Revoke a pending proposal.')
@@ -257,7 +286,8 @@ def vault_cli():
     contract_address = os.environ.get(f'ethervault_{args.network}')
     print(f'[+] Contract is:  {contract_address}')
     print(f'[+] Loading wallet "{args.wallet}"')
-    if args.command in ['deposit', 'withdraw', 'cancel', 'confirm', 'proposal', 'revoke', 'approve', 'withdraw_token']:
+    if args.command in ['deposit', 'withdraw', 'cancel', 'confirm', 'proposal', 'revoke', 'approve', 'withdraw_token',
+                        'track_token']:
         unlock = True
 
     vault = VaultCli(args.wallet, args.network, contract_address, args.init, unlock)
@@ -281,23 +311,35 @@ def vault_cli():
         helpers.parse_tx_ret_val(vault.add_tracked_token(args.token_address, args.feed_address))
 
     if args.command == 'withdraw':
-        print(f'[+] Will propose new withdrawal with parameters:')
-        print(f'[+] Recipient: {args.recipient}')
-        print(f'[+] Ether value: {args.quantity}')
-        print(f'[+] File with transaction data: {args.file}')
-        if args.file:
-            data = bytes(helpers.read_data(args.file).encode())
-            print(f'[+] Read {len(data)} bytes from {args.file}')
+        ev_version = vault.get_ethervault_version()
+        if ev_version == 1:
+            print(f'[+] Will propose new withdrawal with parameters:')
+            print(f'[+] Recipient: {args.recipient}')
+            print(f'[+] Ether value: {args.quantity}')
+            print(f'[+] File with transaction data: {args.file}')
+            if args.file:
+                data = bytes(helpers.read_data(args.file).encode())
+                print(f'[+] Read {len(data)} bytes from {args.file}')
+            else:
+                data = b'0x'
+            helpers.parse_tx_ret_val(vault.propose_withdrawal_raw(to_checksum_address(args.recipient), args.quantity, data))
         else:
-            data = b'0x'
-        helpers.parse_tx_ret_val(vault.propose_withdrawal(to_checksum_address(args.recipient), args.quantity, data))
+            print(f'[+] Will propose new ETH withdrawal with parameters:')
+            print(f'[+] Recipient: {args.recipient}')
+            print(f'[+] Ether value: {args.quantity}')
+            ret = vault.withdraw_via_withdraw('0x0000000000000000000000000000000000000000', args.recipient, args.quantity)
+            helpers.parse_tx_ret_val(ret)
 
     if args.command == 'withdraw_token':
+        ev_version = vault.get_ethervault_version()
         print(f'[+] Will propose new token withdrawal with parameters: ')
         print(f'[+] Recipient: {args.recipient}')
         print(f'[+] Token: {args.token_address}')
         print(f'[+] Quantity: {args.quantity}')
-        helpers.parse_tx_ret_val(vault.propose_token_withdrawal(args.recipient, args.token_address, args.quantity))
+        if ev_version == 1:
+            helpers.parse_tx_ret_val(vault.propose_token_withdrawal_via_raw(args.recipient, args.token_address, args.quantity))
+        else:
+            helpers.parse_tx_ret_val(vault.withdraw_via_withdraw(args.token_address, args.recipient, args.quantity))
 
     if args.command == 'cancel':
         print(f'[+] Canceling pending transaction with txid: {args.txid}')

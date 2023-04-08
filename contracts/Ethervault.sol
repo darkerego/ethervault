@@ -20,6 +20,8 @@ contract EtherVault {
       @dev: gas optimized variable packing
     */
 
+    bool public paused;
+    uint8 public version = 1;
     uint8 private mutex;
     uint8 public signerCount;
     uint8 public threshold;
@@ -38,6 +40,7 @@ contract EtherVault {
         uint8 numSigners;
         uint32 initiated;
         uint128 newLimit;
+        bool paused;
         mapping (address => uint8) approvals;
     }
 
@@ -58,6 +61,7 @@ contract EtherVault {
     bytes2 constant authError = "03";
     bytes2 constant proposalError = "12";
     bytes2 constant txError = "05";
+    bytes2 constant pausedError = "08";
     error FailAndRevert(bytes2);
 
     /*
@@ -71,6 +75,7 @@ contract EtherVault {
           -- Cannot execute because transaction not found (either already executed or invalid txid)
           -- Insufficient balance for request
       06 -- Nonce Error
+      08 -- Contract is paused
       12 Signature Errors
          -- Cannot add signer because address already is a signer
          -- Cannot sign, no proposal Found
@@ -101,6 +106,12 @@ contract EtherVault {
             revert FailAndRevert(authError);
        } // increment nonce if all checks pass
        execNonce += 1;
+    }
+
+    function revertWhenPaused() private {
+        if (paused) {
+            revert FailAndRevert(pausedError);
+        }
     }
 
     modifier protected(uint32 _nonce) {
@@ -134,7 +145,7 @@ contract EtherVault {
             isSigner[_signers[i]] = 1;
         }
       }
-        (threshold, dailyLimit, spentToday, mutex) = (_threshold, _dailyLimit, 0, 0);
+        (threshold, dailyLimit, spentToday, mutex, paused) = (_threshold, _dailyLimit, 0, 0, false);
 
     }
     /*
@@ -153,6 +164,7 @@ contract EtherVault {
         uint256 _value,
         bytes memory data
         ) private {
+
        assembly {
             let success_ := call(gas(), recipient, _value, add(data, 0x20), mload(data), 0x0, 0x0)
             let success := eq(success_, 0x1)
@@ -185,6 +197,7 @@ contract EtherVault {
         address _signer,
         uint128 _limit,
         uint8 _threshold,
+        bool _paused,
         uint32 _nonce
     ) external protected(_nonce) returns(uint16){
         proposalId += 1;
@@ -192,6 +205,7 @@ contract EtherVault {
         (prop.modifiedSigner, prop.newLimit, prop.initiated,
         prop.newThreshold, prop.proposer) = (_signer, _limit,
         uint32(block.timestamp),  _threshold, msg.sender);
+        prop.paused = _paused;
         sign(0, proposalId, msg.sender);
         return proposalId;
     }
@@ -258,7 +272,7 @@ contract EtherVault {
         uint32 txid,
         uint32 _nonce
         ) external protected(_nonce) {
-
+        revertWhenPaused();
         if (pendingTxs[txid].dest == address(0)) {
             revert FailAndRevert(txError);
         }
@@ -276,6 +290,7 @@ contract EtherVault {
         uint32 txid,
         uint32 _nonce
         ) external protected(_nonce) {
+        revertWhenPaused();
         Transaction storage _tx = pendingTxs[txid];
        if (_tx.dest == address(0)){
                 revert FailAndRevert(txError); // tx does not exist
@@ -313,7 +328,7 @@ contract EtherVault {
         uint32 _nonce
 
         ) external payable protected(_nonce) returns(uint32) {
-
+        revertWhenPaused();
         // gas effecient balance call
         uint128 self;
         assembly {

@@ -1,36 +1,43 @@
 #!/usr/bin/python3
 import os
 import argparse
-
+import json
 import brownie
 import dotenv
 from brownie import *
 from brownie import accounts
-from brownie.network.contract import ContractContainer,Contract
+from brownie.network.contract import ContractContainer, Contract
 from brownie import EtherVault
 import dotenv
 
 # EDIT THESE CONFIG VARIABLES
-DEPLOY_ACCT = 'deployer2'
-SIGNERS = ['0xF738Be6972c384211Da31fCAb979F1F81CB1397E', '0x7612E93FF157d1973D0f95Be9E4f0bdF93BAf0DE', '0x2aB5BA5611f4cc435755860d19B94e35B277C5AF']
-THRESHOLD = 2
-DAILY_LIMIT = 0.05 * (10**18)
 
 
+def config_loader(conf_file: str):
+    with open(conf_file, 'r') as f:
+        conf = json.load(f)
+    account = conf.get('account')
+    signers = conf.get('signers')
+    threshold = conf.get('threshold')
+    daily_dollar_limit = conf.get('daily_dollar_limit')
+    return account, signers, threshold, daily_dollar_limit
+
+
+CONF_FILE = 'configs/ethervault_deploy.json'
+deploy_acct, signers, threshold, daily_eth_wei_limit = config_loader(CONF_FILE)
 dotenv.load_dotenv()
 ETHERSCAN_TOKEN = os.environ.get('ETHERSCAN_TOKEN')
-acct = accounts.load(DEPLOY_ACCT)
+acct = accounts.load(deploy_acct)
 
 
-def deploy(signers: list, threshold: int, limit: int, acct = None):
+def deploy(signers: list, threshold: int, limit: int, acct=None):
     return EtherVault.deploy(signers, threshold, limit, {'from': acct.address}, publish_source=True)
 
 
 def main():
     # args = argparse.ArgumentParser()
-    return deploy(SIGNERS, THRESHOLD, DAILY_LIMIT, acct=acct)
+    return deploy(signers, threshold, daily_eth_wei_limit, acct=acct)
 
 
 if __name__ == '__main__':
     main()
-

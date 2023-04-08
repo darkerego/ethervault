@@ -18,15 +18,16 @@ value.  ~ Darkerego, Copyright 2023
 
 
 
-import "interfaces/IERC20.sol";
-import "interfaces/IAggregatorV3.sol";
+import "./interfaces/IERC20.sol";
+import "./interfaces/IAggregatorV3.sol";
 
 contract EtherVaultL2 {
 
     /*
       @dev: gas optimized variable packing
     */
-    uint8 public paused;
+    uint8 public version = 2;
+    bool public paused;
     uint8 private mutex;
     uint8 public signerCount;
     uint8 public threshold;
@@ -42,7 +43,7 @@ contract EtherVaultL2 {
     struct Proposal{
         address proposer;
         address modifiedSigner;
-        uint8 paused;
+        bool paused;
         uint8 newThreshold;
         uint8 numSigners;
         uint32 initiated;
@@ -100,7 +101,7 @@ contract EtherVaultL2 {
         /*
           Called by modifier checkPaused
         */
-        require(paused == 0, "System paused");
+        require(! paused, "System paused");
     }
 
     modifier checkPaused {
@@ -217,14 +218,16 @@ contract EtherVaultL2 {
         address _signer,
         uint128 _limit,
         uint8 _threshold,
-        uint8 _paused,
+        bool _paused,
         uint32 _nonce
     ) external protected(_nonce) returns(uint16){
         proposalId += 1;
         Proposal storage prop = pendingProposals[proposalId];
         (prop.modifiedSigner, prop.newLimit, prop.initiated,
-        prop.newThreshold, prop.proposer, prop.paused) = (_signer, _limit,
-        uint32(block.timestamp),  _threshold, _paused, msg.sender);
+        prop.newThreshold, prop.proposer) = (_signer, _limit,
+        uint32(block.timestamp),  _threshold, msg.sender);
+        // stack too deep
+        prop.paused = _paused;
         sign(0, proposalId, msg.sender);
         return proposalId;
     }
@@ -258,10 +261,8 @@ contract EtherVaultL2 {
             if (proposalObj.newLimit > 0||proposalObj.newThreshold >0){
                 dailyLimit = proposalObj.newLimit;
                 threshold = proposalObj.newThreshold;
-            } // if pausing contract
-            if (proposalObj.paused > 0) {
-                paused = proposalObj.paused;
-            } // if updating signers
+            } // set paused
+            paused = proposalObj.paused;
             if (proposalObj.modifiedSigner != address(0)) {
                 if (isSigner[proposalObj.modifiedSigner] == 1) {
                     /*
@@ -399,7 +400,7 @@ contract EtherVaultL2 {
     ) external protected(_nonce) checkPaused returns (uint32){
         checkBalance(tokenAddress, amount);
         if (underLimit(tokenAddress, amount)) {
-            spentToday += uint128(getDollarValue(tokenAddress, amount));
+            spentToday += uint128(getDollarValue(tokenAddress, amount))  / (10**getTokenDecimals(tokenAddress));
             if (tokenAddress == address(0)) {
                 execute(destination, amount, "");
             } else {
@@ -462,7 +463,8 @@ contract EtherVaultL2 {
 
     function getDollarValue(address tokenAddress, uint256 amount)
       /*
-        @dev Convert arbitrary amount of token into a dollar amount.
+        @dev Convert arbitrary amount of token into a dollar amount in
+        precision of 10**8
       */
         public
         view
