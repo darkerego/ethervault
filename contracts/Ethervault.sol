@@ -58,32 +58,16 @@ contract EtherVault {
       Tried using bytes, but no good way to convert them to strings,
       so that leaves unsigned ints as error codes.
     */
-    bytes2 constant authError = "03";
-    bytes2 constant proposalError = "12";
-    bytes2 constant txError = "05";
-    bytes2 constant pausedError = "08";
-    error FailAndRevert(bytes2);
+    
+    error AlreadySigned(address);
+    error AlreadyApproved(address);
+    error AuthenticationError();
+    error TransactionNotFound();
+    error InsufficientBalance();
+    error NonceError();
+    error ExecutionPaused();
+    error RefuseInvalidTransaction();
 
-    /*
-      @dev: Error Codes are loosely modeled after HTTP error codes. Their definitions are
-      here and in the documentation:
-
-      03 -- Restricted Function Errors
-          -- Access denied for caller attempting to access protected function (caller is not a signer)
-          -- Access denied because state is Locked (blocked attempted reentrancy)
-      04 -- Transaction Errors
-          -- Cannot execute because transaction not found (either already executed or invalid txid)
-          -- Insufficient balance for request
-      06 -- Nonce Error
-      08 -- Contract is paused
-      12 Signature Errors
-         -- Cannot add signer because address already is a signer
-         -- Cannot sign, no proposal Found
-         -- Cannot revoke because address is not a signer
-         -- Cannot sign because caller already signed
-         -- Cannot propose, proposal already pending
-
-    */
 
     /*
       @dev: Mapping Indexes
@@ -103,14 +87,14 @@ contract EtherVault {
           and ensures system state is not locked.
         */
         if( isSigner[s] == 0 ||_nonce <= execNonce || _nonce > execNonce+1 || mutex == 1){
-            revert FailAndRevert(authError);
+            revert AuthenticationError();
        } // increment nonce if all checks pass
        execNonce += 1;
     }
 
-    function revertWhenPaused() private {
+    function revertWhenPaused() private view {
         if (paused) {
-            revert FailAndRevert(pausedError);
+            revert ExecutionPaused();
         }
     }
 
@@ -225,7 +209,7 @@ contract EtherVault {
           @dev: Approve a pending proposal.
         */
          if (pendingProposals[proposalId].approvals[msg.sender] == 1){
-            revert FailAndRevert(proposalError);
+            revert AlreadySigned(msg.sender);
         }
         Proposal storage proposalObj = pendingProposals[_proposalId];
 
@@ -274,7 +258,7 @@ contract EtherVault {
         ) external protected(_nonce) {
         revertWhenPaused();
         if (pendingTxs[txid].dest == address(0)) {
-            revert FailAndRevert(txError);
+            revert RefuseInvalidTransaction();
         }
         delete pendingTxs[txid];
     }
@@ -293,7 +277,7 @@ contract EtherVault {
         revertWhenPaused();
         Transaction storage _tx = pendingTxs[txid];
        if (_tx.dest == address(0)){
-                revert FailAndRevert(txError); // tx does not exist
+                revert RefuseInvalidTransaction(); // tx does not exist
             }
        if (pendingTxs[txid].approvals[msg.sender] == 0){
             if(_tx.numSigners + 1 >= threshold){
@@ -304,7 +288,7 @@ contract EtherVault {
             }
 
         } else {
-            revert FailAndRevert(txError);
+            revert AlreadyApproved(msg.sender);
         }
     }
 
@@ -336,7 +320,7 @@ contract EtherVault {
         }
         // make sure we have equity for this request
         if(self < value){
-            revert FailAndRevert(txError);
+            revert InsufficientBalance();
         }
 
         if (underLimit(value)) {
