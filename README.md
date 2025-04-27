@@ -24,6 +24,10 @@ transaction fees. Ethervault (version 1) is intended to be used on main net, whi
   # TODO: test proposal functions on EthervaultL2
 
 ### Changelog 
+
+April 27, 2025
+- Switched the silly byte2 custom error scheme to simply using custom errors in EtherVault version 1.
+
 April 7, 2023
 
 - Began thoroughly testing new changes. identified a bug with the daily dollar limit in 
